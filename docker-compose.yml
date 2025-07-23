@@ -1,0 +1,80 @@
+version: "3.8"
+
+services:
+  redis:
+    image: redis:7.2-alpine
+    container_name: rinha-redis
+    command: redis-server --save "" --appendonly no --maxclients 20000
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: "275MB"
+  
+  api1: &api
+    build:
+      context: ./pagamentos
+    hostname: api1
+    environment:
+      - SPRING_APPLICATION_NAME=pagamentos
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - PROCESSOR_DEFAULT_BASE_URL=http://payment-processor-default:8080
+      - PROCESSOR_DEFAULT_HEALTH_URL=http://payment-processor-default:8080/payments/service-health
+      - PROCESSOR_FALLBACK_BASE_URL=http://payment-processor-fallback:8080
+      - PROCESSOR_FALLBACK_HEALTH_URL=http://payment-processor-fallback:8080/payments/service-health
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+      - payment-processor
+    deploy:
+      resources:
+        limits:
+          cpus: "0.55"
+          memory: "30MB"
+  
+  api2:
+    <<: *api
+    hostname: api2
+    environment:
+      - SPRING_APPLICATION_NAME=pagamentos
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - PROCESSOR_DEFAULT_BASE_URL=http://payment-processor-default:8080
+      - PROCESSOR_DEFAULT_HEALTH_URL=http://payment-processor-default:8080/payments/service-health
+      - PROCESSOR_FALLBACK_BASE_URL=http://payment-processor-fallback:8080
+      - PROCESSOR_FALLBACK_HEALTH_URL=http://payment-processor-fallback:8080/payments/service-health
+  
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: rinha-nginx
+    ports:
+      - "9999:9999"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api1
+      - api2
+    networks:
+      - backend
+      - payment-processor
+    deploy:
+      resources:
+        limits:
+          cpus: "0.15"
+          memory: "15MB"
+
+networks:
+  backend:
+    driver: bridge
+  payment-processor:
+    external: true
