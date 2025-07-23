@@ -1,0 +1,15 @@
+FROM eclipse-temurin:21-jdk-jammy
+
+WORKDIR /app
+
+COPY ./pagamentos/mvnw ./mvnw
+COPY ./pagamentos/.mvn ./.mvn
+COPY ./pagamentos/pom.xml ./pom.xml
+
+RUN ./mvnw dependency:go-offline
+
+COPY ./pagamentos/src ./src
+
+EXPOSE 8080
+
+CMD ["./mvnw", "spring-boot:run", "-Dmaven.test.skip=true"]

@@ -1,0 +1,24 @@
+version: "3.8"
+
+x-api-dev-template: &api-dev
+  build:
+    context: .
+    dockerfile: pagamentos/Dockerfile.dev
+  volumes:
+    - ./pagamentos/src:/app/src
+  deploy:
+    resources:
+      limits:
+        cpus: "0.75"
+        memory: "768MB"
+
+services:
+  api1:
+    <<: *api-dev
+    ports:
+      - "8081:8080"
+  
+  api2:
+    <<: *api-dev
+    ports:
+      - "8082:8080"
