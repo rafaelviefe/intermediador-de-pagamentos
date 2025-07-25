@@ -4,7 +4,6 @@ services:
   redis:
     image: redis/redis-stack-server:latest
     container_name: rinha-redis
-    command: redis-server --save "" --appendonly no --maxclients 20000 --protected-mode no
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
