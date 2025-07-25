@@ -1,7 +1,7 @@
 package br.com.rinha.pagamentos.service;
 
-import br.com.rinha.pagamentos.model.Payment;
-import br.com.rinha.pagamentos.controller.dto.PaymentProcessorRequest;
+import br.com.rinha.pagamentos.model.QueuedPayment;
+import br.com.rinha.pagamentos.model.PaymentSent;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -36,7 +36,7 @@ public class PaymentService {
 	}
 
 	@Async("virtualThreadExecutor")
-	public void processPayment(Payment payment) {
+	public void processPayment(QueuedPayment payment) {
 		try {
 			if (IsProcessorAvailable("default")) {
 				trySendToProcessor("default", processorDefaultUrl, payment);
@@ -56,13 +56,13 @@ public class PaymentService {
 		}
 	}
 
-	private void trySendToProcessor(String processorKey, String url, Payment payment) {
+	private void trySendToProcessor(String processorKey, String url, QueuedPayment payment) {
 		try {
-			PaymentProcessorRequest requestDto = new PaymentProcessorRequest(payment);
-			ResponseEntity<String> response = restTemplate.postForEntity(url, requestDto, String.class);
+			PaymentSent paymentSent = new PaymentSent(payment);
+			ResponseEntity<String> response = restTemplate.postForEntity(url, paymentSent, String.class);
 
 			if (response.getStatusCode().is2xxSuccessful()) {
-				persistSuccessfulPayment(payment, processorKey);
+				persistSuccessfulPayment(paymentSent, processorKey);
 			} else {
 				handleFailedAttempt(processorKey);
 				requeuePayment(payment);
@@ -78,14 +78,14 @@ public class PaymentService {
 		redisTemplate.opsForValue().set(healthKey, "1", Duration.ofSeconds(30));
 	}
 
-	private void requeuePayment(Payment payment) {
+	private void requeuePayment(QueuedPayment payment) {
 		payment.setRetries(payment.getRetries() + 1);
 		redisTemplate.opsForList().leftPush(RETRY_QUEUE_KEY, payment);
 	}
 
-	private void persistSuccessfulPayment(Payment payment, String processorKey) {
-		long timestamp = payment.getRequestedAt().toEpochMilli();
-		double amount = payment.getAmount().doubleValue();
+	private void persistSuccessfulPayment(PaymentSent paymentSent, String processorKey) {
+		long timestamp = paymentSent.getRequestedAt().toEpochMilli();
+		double amount = paymentSent.getAmount().doubleValue();
 
 		redisTemplate.execute((RedisCallback<Object>) connection ->
 				connection.execute("TS.ADD",

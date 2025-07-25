@@ -2,20 +2,17 @@ package br.com.rinha.pagamentos.model;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import br.com.rinha.pagamentos.controller.dto.PaymentRequest;
 
-public class Payment {
+public class PaymentSent {
 
 	private String correlationId;
 	private BigDecimal amount;
 	private Instant requestedAt;
-	private int retries;
 
-	public Payment(PaymentRequest request) {
-		this.correlationId = request.correlationId();
-		this.amount = request.amount();
+	public PaymentSent(QueuedPayment payment) {
+		this.amount = payment.getAmount();
+		this.correlationId = payment.getCorrelationId();
 		this.requestedAt = Instant.now();
-		this.retries = 0;
 	}
 
 	public String getCorrelationId() {
@@ -40,13 +37,5 @@ public class Payment {
 
 	public void setRequestedAt(Instant requestedAt) {
 		this.requestedAt = requestedAt;
-	}
-
-	public int getRetries() {
-		return retries;
-	}
-
-	public void setRetries(int retries) {
-		this.retries = retries;
 	}
 }

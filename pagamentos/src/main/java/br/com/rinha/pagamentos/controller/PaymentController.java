@@ -1,7 +1,7 @@
 package br.com.rinha.pagamentos.controller;
 
-import br.com.rinha.pagamentos.model.Payment;
-import br.com.rinha.pagamentos.controller.dto.PaymentRequest;
+import br.com.rinha.pagamentos.model.QueuedPayment;
+import br.com.rinha.pagamentos.model.PaymentReceived;
 import br.com.rinha.pagamentos.service.PaymentService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -20,8 +20,8 @@ public class PaymentController {
 	}
 
 	@PostMapping
-	public ResponseEntity<Void> createPayment(@RequestBody PaymentRequest request) {
-		Payment newPayment = new Payment(request);
+	public ResponseEntity<Void> createPayment(@RequestBody PaymentReceived request) {
+		QueuedPayment newPayment = new QueuedPayment(request);
 
 		paymentService.processPayment(newPayment);
 
