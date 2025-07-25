@@ -29,7 +29,7 @@ public class ProcessorHealthChecker {
 		this.redisTemplate = redisTemplate;
 	}
 
-	@Scheduled(fixedDelay = 5100)
+	@Scheduled(fixedDelay = 5500)
 	@SchedulerLock(name = "processorHealthCheck")
 	public void checkProcessors() {
 		checkProcessorAsync("default", processorDefaultUrl);
