@@ -74,8 +74,7 @@ public class PaymentService {
 	}
 
 	private void handleFailedAttempt(String processorKey) {
-		String healthKey = HEALTH_FAILING_PREFIX + processorKey;
-		redisTemplate.opsForValue().set(healthKey, "1", Duration.ofSeconds(30));
+		redisTemplate.opsForValue().set(HEALTH_FAILING_PREFIX + processorKey, "1", Duration.ofSeconds(30));
 	}
 
 	private void requeuePayment(QueuedPayment payment) {
@@ -95,8 +94,7 @@ public class PaymentService {
 				)
 		);
 
-		String healthKey = HEALTH_FAILING_PREFIX + processorKey;
-		redisTemplate.delete(healthKey);
+		redisTemplate.delete(HEALTH_FAILING_PREFIX + processorKey);
 	}
 
 	private boolean IsProcessorAvailable(String processorKey) {
