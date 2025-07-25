@@ -1,6 +1,5 @@
 package br.com.rinha.pagamentos.scheduler;
 
-import br.com.rinha.pagamentos.model.ProcessorHealthStatus;
 import com.fasterxml.jackson.databind.JsonNode;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.beans.factory.annotation.Value;
@@ -11,13 +10,14 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.concurrent.CompletableFuture;
+import java.time.Duration;
 
 @Component
 public class ProcessorHealthChecker {
 
-	private final RedisTemplate<String, ProcessorHealthStatus> redisTemplate;
+	private final RedisTemplate<String, String> redisTemplate;
 	private final RestTemplate restTemplate = new RestTemplate();
+	private static final String HEALTH_FAILING_PREFIX = "health:failing:";
 
 	@Value("${processor.default.health.url}")
 	private String processorDefaultUrl;
@@ -25,7 +25,7 @@ public class ProcessorHealthChecker {
 	@Value("${processor.fallback.health.url}")
 	private String processorFallbackUrl;
 
-	public ProcessorHealthChecker(RedisTemplate<String, ProcessorHealthStatus> redisTemplate) {
+	public ProcessorHealthChecker(RedisTemplate<String, String> redisTemplate) {
 		this.redisTemplate = redisTemplate;
 	}
 
@@ -37,16 +37,20 @@ public class ProcessorHealthChecker {
 	}
 
 	@Async("virtualThreadExecutor")
-	public CompletableFuture<Void> checkProcessorAsync(String processorKey, String url) {
+	public void checkProcessorAsync(String processorKey, String url) {
+		String healthKey = HEALTH_FAILING_PREFIX + processorKey;
 		try {
 			ResponseEntity<JsonNode> response = restTemplate.getForEntity(url, JsonNode.class);
 			JsonNode body = response.getBody();
-			boolean failing = body.get("failing").asBoolean();
-			long responseTime = body.get("minResponseTime").asLong();
-			redisTemplate.opsForValue().set("health:" + processorKey, new ProcessorHealthStatus(failing, responseTime));
+			boolean failing = body != null && body.get("failing").asBoolean();
+
+			if (failing) {
+				redisTemplate.opsForValue().set(healthKey, "1", Duration.ofSeconds(30));
+			} else {
+				redisTemplate.delete(healthKey);
+			}
 		} catch (Exception e) {
-			redisTemplate.opsForValue().set("health:" + processorKey, new ProcessorHealthStatus(true, 9999));
+			redisTemplate.opsForValue().set(healthKey, "1", Duration.ofSeconds(30));
 		}
-		return CompletableFuture.completedFuture(null);
 	}
 }
