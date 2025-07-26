@@ -34,15 +34,7 @@ services:
       context: ./pagamentos
     hostname: api1
     environment:
-      - SPRING_APPLICATION_NAME=pagamentos
       - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
-      - PROCESSOR_DEFAULT_BASE_URL=http://payment-processor-default:8080
-      - PROCESSOR_DEFAULT_HEALTH_URL=http://payment-processor-default:8080/payments/service-health
-      - PROCESSOR_DEFAULT_PAYMENTS_URL=http://payment-processor-default:8080/payments
-      - PROCESSOR_FALLBACK_BASE_URL=http://payment-processor-fallback:8080
-      - PROCESSOR_FALLBACK_HEALTH_URL=http://payment-processor-fallback:8080/payments/service-health
-      - PROCESSOR_FALLBACK_PAYMENTS_URL=http://payment-processor-fallback:8080/payments
     depends_on:
       redis-init:
         condition: service_completed_successfully
@@ -58,16 +50,6 @@ services:
   api2:
     <<: *api
     hostname: api2
-    environment:
-      - SPRING_APPLICATION_NAME=pagamentos
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
-      - PROCESSOR_DEFAULT_BASE_URL=http://payment-processor-default:8080
-      - PROCESSOR_DEFAULT_HEALTH_URL=http://payment-processor-default:8080/payments/service-health
-      - PROCESSOR_DEFAULT_PAYMENTS_URL=http://payment-processor-default:8080/payments
-      - PROCESSOR_FALLBACK_BASE_URL=http://payment-processor-fallback:8080
-      - PROCESSOR_FALLBACK_HEALTH_URL=http://payment-processor-fallback:8080/payments/service-health
-      - PROCESSOR_FALLBACK_PAYMENTS_URL=http://payment-processor-fallback:8080/payments
   
   nginx:
     image: nginx:1.25-alpine
