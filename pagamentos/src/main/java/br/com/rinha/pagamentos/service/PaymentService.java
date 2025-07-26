@@ -10,7 +10,6 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
-
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
@@ -39,13 +38,13 @@ public class PaymentService {
 	@Async("virtualThreadExecutor")
 	public void processPayment(QueuedPayment payment) {
 		try {
-			if (IsProcessorAvailable("default")) {
+			if (isProcessorAvailable("default")) {
 				trySendToProcessor("default", processorDefaultUrl, payment);
 				return;
 			}
 
 			if (payment.getRetries() > RETRY_THRESHOLD_FOR_FALLBACK) {
-				if (IsProcessorAvailable("fallback")) {
+				if (isProcessorAvailable("fallback")) {
 					trySendToProcessor("fallback", processorFallbackUrl, payment);
 					return;
 				}
@@ -98,7 +97,7 @@ public class PaymentService {
 		redisTemplate.delete(HEALTH_FAILING_PREFIX + processorKey);
 	}
 
-	private boolean IsProcessorAvailable(String processorKey) {
+	private boolean isProcessorAvailable(String processorKey) {
 		return !redisTemplate.hasKey(HEALTH_FAILING_PREFIX + processorKey);
 	}
 }
