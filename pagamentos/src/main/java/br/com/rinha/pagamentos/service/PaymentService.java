@@ -23,7 +23,7 @@ public class PaymentService {
 	private static final int RETRY_THRESHOLD_FOR_FALLBACK = 3;
 
 	private final RedisTemplate<String, Object> redisTemplate;
-	private final RestTemplate restTemplate = new RestTemplate();
+	private final RestTemplate restTemplate;
 
 	@Value("${processor.default.payments.url}")
 	private String processorDefaultUrl;
@@ -31,8 +31,9 @@ public class PaymentService {
 	@Value("${processor.fallback.payments.url}")
 	private String processorFallbackUrl;
 
-	public PaymentService(RedisTemplate<String, Object> redisTemplate) {
+	public PaymentService(RedisTemplate<String, Object> redisTemplate, RestTemplate restTemplate) {
 		this.redisTemplate = redisTemplate;
+		this.restTemplate = restTemplate;
 	}
 
 	@Async("virtualThreadExecutor")
