@@ -9,6 +9,9 @@ public class QueuedPayment {
 	private BigDecimal amount;
 	private int retries;
 
+	public QueuedPayment() {
+	}
+
 	public QueuedPayment(PaymentReceived request) {
 		this.correlationId = request.getCorrelationId();
 		this.amount = request.getAmount();
