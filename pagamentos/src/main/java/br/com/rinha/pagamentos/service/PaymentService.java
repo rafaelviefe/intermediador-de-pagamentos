@@ -13,6 +13,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
@@ -93,6 +94,10 @@ public class PaymentService {
 	}
 
 	private void persistSuccessfulPayment(PaymentSent paymentSent, String processorKey) {
+		long amountInCents = paymentSent.getAmount()
+				.multiply(new BigDecimal("100"))
+				.longValue();
+
 		redisTemplate.execute((RedisCallback<Object>) connection -> connection.scriptingCommands().eval(
 				PERSIST_PAYMENT_SCRIPT.getScriptAsString().getBytes(StandardCharsets.UTF_8),
 				ReturnType.INTEGER,
@@ -100,7 +105,7 @@ public class PaymentService {
 				PROCESSED_PAYMENTS_TIMESERIES_KEY.getBytes(StandardCharsets.UTF_8),
 				(HEALTH_FAILING_PREFIX + processorKey).getBytes(StandardCharsets.UTF_8),
 				String.valueOf(paymentSent.getRequestedAt().toEpochMilli()).getBytes(StandardCharsets.UTF_8),
-				paymentSent.getAmount().toPlainString().getBytes(StandardCharsets.UTF_8),
+				String.valueOf(amountInCents).getBytes(StandardCharsets.UTF_8),
 				processorKey.getBytes(StandardCharsets.UTF_8)
 		));
 	}
