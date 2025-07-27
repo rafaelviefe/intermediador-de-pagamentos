@@ -91,7 +91,7 @@ public class PaymentService {
 	}
 
 	private void handleFailedAttempt(String processorKey) {
-		healthCheckRedisTemplate.opsForValue().set(HEALTH_FAILING_PREFIX + processorKey, "1", Duration.ofSeconds(30));
+		healthCheckRedisTemplate.opsForValue().set(HEALTH_FAILING_PREFIX + processorKey, "1", Duration.ofSeconds(5));
 	}
 
 	private void requeuePayment(QueuedPayment payment) {
