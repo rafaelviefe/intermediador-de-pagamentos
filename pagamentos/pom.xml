@@ -39,6 +39,19 @@
 			<artifactId>shedlock-provider-redis-spring</artifactId>
 			<version>5.12.0</version>
 		</dependency>
+		<dependency>
+			<groupId>io.github.classgraph</groupId>
+			<artifactId>classgraph</artifactId>
+			<version>4.8.165</version> </dependency>
+		<dependency>
+			<groupId>com.esotericsoftware</groupId>
+			<artifactId>kryo</artifactId>
+			<version>5.6.0</version> </dependency>
+		<dependency>
+			<groupId>de.javakaffee</groupId>
+			<artifactId>kryo-serializers</artifactId>
+			<version>0.45</version>
+		</dependency>
 	</dependencies>
 
 	<build>
