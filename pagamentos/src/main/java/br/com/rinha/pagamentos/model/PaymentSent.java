@@ -2,10 +2,11 @@ package br.com.rinha.pagamentos.model;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.UUID;
 
 public class PaymentSent {
 
-	private String correlationId;
+	private UUID correlationId;
 	private BigDecimal amount;
 	private Instant requestedAt;
 
@@ -15,11 +16,11 @@ public class PaymentSent {
 		this.requestedAt = Instant.now();
 	}
 
-	public String getCorrelationId() {
+	public UUID getCorrelationId() {
 		return correlationId;
 	}
 
-	public void setCorrelationId(String correlationId) {
+	public void setCorrelationId(UUID correlationId) {
 		this.correlationId = correlationId;
 	}
 

@@ -1,10 +1,11 @@
 package br.com.rinha.pagamentos.model;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 
 public class QueuedPayment {
 
-	private String correlationId;
+	private UUID correlationId;
 	private BigDecimal amount;
 	private int retries;
 
@@ -14,11 +15,11 @@ public class QueuedPayment {
 		this.retries = 0;
 	}
 
-	public String getCorrelationId() {
+	public UUID getCorrelationId() {
 		return correlationId;
 	}
 
-	public void setCorrelationId(String correlationId) {
+	public void setCorrelationId(UUID correlationId) {
 		this.correlationId = correlationId;
 	}
 

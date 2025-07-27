@@ -1,22 +1,23 @@
 package br.com.rinha.pagamentos.model;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 
 public class PaymentReceived {
 
-	private String correlationId;
+	private UUID correlationId;
 	private BigDecimal amount;
 
-	public PaymentReceived(BigDecimal amount, String correlationId) {
+	public PaymentReceived(BigDecimal amount, UUID correlationId) {
 		this.amount = amount;
 		this.correlationId = correlationId;
 	}
 
-	public String getCorrelationId() {
+	public UUID getCorrelationId() {
 		return correlationId;
 	}
 
-	public void setCorrelationId(String correlationId) {
+	public void setCorrelationId(UUID correlationId) {
 		this.correlationId = correlationId;
 	}
 
