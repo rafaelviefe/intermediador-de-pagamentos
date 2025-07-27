@@ -3,8 +3,11 @@ package br.com.rinha.pagamentos.service;
 import br.com.rinha.pagamentos.model.QueuedPayment;
 import br.com.rinha.pagamentos.model.PaymentSent;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.connection.ReturnType;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -20,6 +23,13 @@ public class PaymentService {
 	private static final String RETRY_QUEUE_KEY = "payments:retry-queue";
 	private static final String PROCESSED_PAYMENTS_TIMESERIES_KEY = "payments:processed:ts";
 	private static final int RETRY_THRESHOLD_FOR_FALLBACK = 3;
+
+	private static final RedisScript<Long> PERSIST_PAYMENT_SCRIPT =
+			new DefaultRedisScript<>(
+					"redis.call('TS.ADD', KEYS[1], ARGV[1], ARGV[2], 'LABELS', 'processor', ARGV[3]); " +
+							"return redis.call('DEL', KEYS[2]);",
+					Long.class
+			);
 
 	private final RedisTemplate<String, Object> redisTemplate;
 	private final RestTemplate restTemplate;
@@ -83,21 +93,19 @@ public class PaymentService {
 	}
 
 	private void persistSuccessfulPayment(PaymentSent paymentSent, String processorKey) {
-		long timestamp = paymentSent.getRequestedAt().toEpochMilli();
-		double amount = paymentSent.getAmount().doubleValue();
-
-		redisTemplate.execute((RedisCallback<Object>) connection ->
-				connection.execute("TS.ADD",
-						PROCESSED_PAYMENTS_TIMESERIES_KEY.getBytes(StandardCharsets.UTF_8),
-						String.valueOf(timestamp).getBytes(StandardCharsets.UTF_8),
-						String.valueOf(amount).getBytes(StandardCharsets.UTF_8)
-				)
-		);
-
-		redisTemplate.delete(HEALTH_FAILING_PREFIX + processorKey);
+		redisTemplate.execute((RedisCallback<Object>) connection -> connection.scriptingCommands().eval(
+				PERSIST_PAYMENT_SCRIPT.getScriptAsString().getBytes(StandardCharsets.UTF_8),
+				ReturnType.INTEGER,
+				2,
+				PROCESSED_PAYMENTS_TIMESERIES_KEY.getBytes(StandardCharsets.UTF_8),
+				(HEALTH_FAILING_PREFIX + processorKey).getBytes(StandardCharsets.UTF_8),
+				String.valueOf(paymentSent.getRequestedAt().toEpochMilli()).getBytes(StandardCharsets.UTF_8),
+				paymentSent.getAmount().toPlainString().getBytes(StandardCharsets.UTF_8),
+				processorKey.getBytes(StandardCharsets.UTF_8)
+		));
 	}
 
 	private boolean isProcessorAvailable(String processorKey) {
-		return !redisTemplate.hasKey(HEALTH_FAILING_PREFIX + processorKey);
+		return redisTemplate.hasKey(HEALTH_FAILING_PREFIX + processorKey) != Boolean.TRUE;
 	}
 }
