@@ -21,13 +21,13 @@ public class RetryQueueConsumer implements ApplicationListener<ApplicationReadyE
 
 	private final ExecutorService virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
-	private final RedisTemplate<String, Object> redisTemplate;
+	private final RedisTemplate<String, QueuedPayment> redisTemplate;
 	private final PaymentService paymentService;
 
 	@Value("${retry.consumer.concurrency:10}")
 	private int concurrencyLevel;
 
-	public RetryQueueConsumer(RedisTemplate<String, Object> redisTemplate, PaymentService paymentService) {
+	public RetryQueueConsumer(RedisTemplate<String, QueuedPayment> redisTemplate, PaymentService paymentService) {
 		this.redisTemplate = redisTemplate;
 		this.paymentService = paymentService;
 	}
@@ -42,12 +42,12 @@ public class RetryQueueConsumer implements ApplicationListener<ApplicationReadyE
 	private void consumeQueue() {
 		while (!Thread.currentThread().isInterrupted()) {
 			try {
-				Object paymentObject = redisTemplate.opsForList().rightPop(
+				QueuedPayment payment = redisTemplate.opsForList().rightPop(
 						RETRY_QUEUE_KEY,
 						Duration.ofSeconds(BLOCKING_TIMEOUT_SECONDS)
 				);
 
-				if (paymentObject instanceof QueuedPayment payment) {
+				if (payment != null) {
 					paymentService.processPayment(payment);
 				}
 

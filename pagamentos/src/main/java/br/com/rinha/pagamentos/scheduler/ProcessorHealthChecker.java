@@ -2,6 +2,7 @@ package br.com.rinha.pagamentos.scheduler;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.ResponseEntity;
@@ -25,7 +26,7 @@ public class ProcessorHealthChecker {
 	@Value("${processor.fallback.health.url}")
 	private String processorFallbackUrl;
 
-	public ProcessorHealthChecker(RedisTemplate<String, String> redisTemplate) {
+	public ProcessorHealthChecker(@Qualifier("healthCheckRedisTemplate") RedisTemplate<String, String> redisTemplate) {
 		this.redisTemplate = redisTemplate;
 	}
 

@@ -2,6 +2,7 @@ package br.com.rinha.pagamentos.service;
 
 import br.com.rinha.pagamentos.model.QueuedPayment;
 import br.com.rinha.pagamentos.model.PaymentSent;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.connection.ReturnType;
 import org.springframework.data.redis.core.RedisCallback;
@@ -32,7 +33,8 @@ public class PaymentService {
 					Long.class
 			);
 
-	private final RedisTemplate<String, Object> redisTemplate;
+	private final RedisTemplate<String, QueuedPayment> paymentRedisTemplate;
+	private final RedisTemplate<String, String> healthCheckRedisTemplate;
 	private final RestTemplate restTemplate;
 
 	@Value("${processor.default.payments.url}")
@@ -41,8 +43,12 @@ public class PaymentService {
 	@Value("${processor.fallback.payments.url}")
 	private String processorFallbackUrl;
 
-	public PaymentService(RedisTemplate<String, Object> redisTemplate, RestTemplate restTemplate) {
-		this.redisTemplate = redisTemplate;
+	public PaymentService(
+			@Qualifier("paymentRedisTemplate") RedisTemplate<String, QueuedPayment> paymentRedisTemplate,
+			@Qualifier("healthCheckRedisTemplate") RedisTemplate<String, String> healthCheckRedisTemplate,
+			RestTemplate restTemplate) {
+		this.paymentRedisTemplate = paymentRedisTemplate;
+		this.healthCheckRedisTemplate = healthCheckRedisTemplate;
 		this.restTemplate = restTemplate;
 	}
 
@@ -85,12 +91,12 @@ public class PaymentService {
 	}
 
 	private void handleFailedAttempt(String processorKey) {
-		redisTemplate.opsForValue().set(HEALTH_FAILING_PREFIX + processorKey, "1", Duration.ofSeconds(30));
+		healthCheckRedisTemplate.opsForValue().set(HEALTH_FAILING_PREFIX + processorKey, "1", Duration.ofSeconds(30));
 	}
 
 	private void requeuePayment(QueuedPayment payment) {
 		payment.setRetries(payment.getRetries() + 1);
-		redisTemplate.opsForList().leftPush(RETRY_QUEUE_KEY, payment);
+		paymentRedisTemplate.opsForList().leftPush(RETRY_QUEUE_KEY, payment);
 	}
 
 	private void persistSuccessfulPayment(PaymentSent paymentSent, String processorKey) {
@@ -98,7 +104,7 @@ public class PaymentService {
 				.multiply(new BigDecimal("100"))
 				.longValue();
 
-		redisTemplate.execute((RedisCallback<Object>) connection -> connection.scriptingCommands().eval(
+		healthCheckRedisTemplate.execute((RedisCallback<Object>) connection -> connection.scriptingCommands().eval(
 				PERSIST_PAYMENT_SCRIPT.getScriptAsString().getBytes(StandardCharsets.UTF_8),
 				ReturnType.INTEGER,
 				2,
@@ -111,6 +117,6 @@ public class PaymentService {
 	}
 
 	private boolean isProcessorAvailable(String processorKey) {
-		return redisTemplate.hasKey(HEALTH_FAILING_PREFIX + processorKey) != Boolean.TRUE;
+		return healthCheckRedisTemplate.hasKey(HEALTH_FAILING_PREFIX + processorKey) != Boolean.TRUE;
 	}
 }
