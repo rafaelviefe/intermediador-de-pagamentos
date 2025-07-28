@@ -21,7 +21,9 @@ import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class PaymentService {
@@ -34,8 +36,7 @@ public class PaymentService {
 
 	private static final RedisScript<Long> PERSIST_PAYMENT_SCRIPT =
 			new DefaultRedisScript<>(
-					"redis.call('TS.ADD', KEYS[1], ARGV[1], ARGV[2], 'LABELS', 'processor', ARGV[3]); " +
-							"return redis.call('DEL', KEYS[2]);",
+					"redis.call('TS.ADD', KEYS[1], ARGV[1], ARGV[2]); return redis.call('DEL', KEYS[2]);",
 					Long.class
 			);
 
@@ -43,31 +44,22 @@ public class PaymentService {
 			new DefaultRedisScript<>(
 					"""
 					local timeBucket = 9999999999999
-	
-					local sum_results = redis.call('TS.MRANGE', ARGV[1], ARGV[2],
-					  'AGGREGATION', 'sum', timeBucket,
-					  'FILTER', 'processor=default', 'processor=fallback')
-	
-					local count_results = redis.call('TS.MRANGE', ARGV[1], ARGV[2],
-					  'AGGREGATION', 'count', timeBucket,
-					  'FILTER', 'processor=default', 'processor=fallback')
-	
 					local summary = {0, 0, 0, 0}
-	
-					if count_results[1] and #count_results[1] > 0 and count_results[1][1][3] and #count_results[1][1][3] > 0 then
-					   summary[1] = tonumber(count_results[1][1][3][1][2])
+					
+					if redis.call('EXISTS', KEYS[1]) == 1 then
+						local default_sum_res = redis.call('TS.RANGE', KEYS[1], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
+						local default_count_res = redis.call('TS.RANGE', KEYS[1], ARGV[1], ARGV[2], 'AGGREGATION', 'count', timeBucket)
+						if #default_count_res > 0 then summary[1] = default_count_res[1][2] end
+						if #default_sum_res > 0 then summary[2] = default_sum_res[1][2] end
 					end
-					if count_results[2] and #count_results[2] > 0 and count_results[2][1][3] and #count_results[2][1][3] > 0 then
-					   summary[3] = tonumber(count_results[2][1][3][1][2])
+					
+					if redis.call('EXISTS', KEYS[2]) == 1 then
+						local fallback_sum_res = redis.call('TS.RANGE', KEYS[2], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
+						local fallback_count_res = redis.call('TS.RANGE', KEYS[2], ARGV[1], ARGV[2], 'AGGREGATION', 'count', timeBucket)
+						if #fallback_count_res > 0 then summary[3] = fallback_count_res[1][2] end
+						if #fallback_sum_res > 0 then summary[4] = fallback_sum_res[1][2] end
 					end
-	
-					if sum_results[1] and #sum_results[1] > 0 and sum_results[1][1][3] and #sum_results[1][1][3] > 0 then
-					   summary[2] = tonumber(sum_results[1][1][3][1][2])
-					end
-					if sum_results[2] and #sum_results[2] > 0 and sum_results[2][1][3] and #sum_results[2][1][3] > 0 then
-					   summary[4] = tonumber(sum_results[2][1][3][1][2])
-					end
-	
+					
 					return summary
 					""",
 					List.class
@@ -99,7 +91,6 @@ public class PaymentService {
 				trySendToProcessor("default", processorDefaultUrl, payment);
 				return;
 			}
-
 			if (payment.getRetries() > RETRY_THRESHOLD_FOR_FALLBACK) {
 				if (isProcessorAvailable("fallback")) {
 					trySendToProcessor("fallback", processorFallbackUrl, payment);
@@ -107,7 +98,6 @@ public class PaymentService {
 				}
 			}
 			requeuePayment(payment);
-
 		} catch (Exception e) {
 			requeuePayment(payment);
 		}
@@ -117,7 +107,6 @@ public class PaymentService {
 		try {
 			PaymentSent paymentSent = new PaymentSent(payment);
 			ResponseEntity<String> response = restTemplate.postForEntity(url, paymentSent, String.class);
-
 			if (response.getStatusCode().is2xxSuccessful()) {
 				persistSuccessfulPayment(paymentSent, processorKey);
 			} else {
@@ -143,16 +132,16 @@ public class PaymentService {
 		long amountInCents = paymentSent.getAmount()
 				.multiply(ONE_HUNDRED)
 				.longValue();
+		String dynamicTimeSeriesKey = PROCESSED_PAYMENTS_TIMESERIES_KEY + ":" + processorKey;
 
 		healthCheckRedisTemplate.execute((RedisCallback<Object>) connection -> connection.scriptingCommands().eval(
 				PERSIST_PAYMENT_SCRIPT.getScriptAsString().getBytes(StandardCharsets.UTF_8),
 				ReturnType.INTEGER,
 				2,
-				PROCESSED_PAYMENTS_TIMESERIES_KEY.getBytes(StandardCharsets.UTF_8),
+				dynamicTimeSeriesKey.getBytes(StandardCharsets.UTF_8),
 				(HEALTH_FAILING_PREFIX + processorKey).getBytes(StandardCharsets.UTF_8),
 				String.valueOf(paymentSent.getRequestedAt().toEpochMilli()).getBytes(StandardCharsets.UTF_8),
-				String.valueOf(amountInCents).getBytes(StandardCharsets.UTF_8),
-				processorKey.getBytes(StandardCharsets.UTF_8)
+				String.valueOf(amountInCents).getBytes(StandardCharsets.UTF_8)
 		));
 	}
 
@@ -163,13 +152,17 @@ public class PaymentService {
 	public PaymentsSummaryResponse getPaymentsSummary(String from, String to) {
 		String fromTimestamp = (from != null) ? String.valueOf(Instant.parse(from).toEpochMilli()) : "-";
 		String toTimestamp = (to != null) ? String.valueOf(Instant.parse(to).toEpochMilli()) : "+";
+		String defaultKey = PROCESSED_PAYMENTS_TIMESERIES_KEY + ":default";
+		String fallbackKey = PROCESSED_PAYMENTS_TIMESERIES_KEY + ":fallback";
 
-		List<Long> results = healthCheckRedisTemplate.execute(
-				GET_SUMMARY_SCRIPT,
-				List.of(PROCESSED_PAYMENTS_TIMESERIES_KEY),
-				fromTimestamp,
-				toTimestamp
-		);
+		List<Object> results = Optional.ofNullable(
+				healthCheckRedisTemplate.execute(
+						GET_SUMMARY_SCRIPT,
+						List.of(defaultKey, fallbackKey),
+						fromTimestamp,
+						toTimestamp
+				)
+		).orElse(Collections.emptyList());
 
 		long defaultCount = 0;
 		long defaultAmountCents = 0;
@@ -177,10 +170,10 @@ public class PaymentService {
 		long fallbackAmountCents = 0;
 
 		if (results.size() == 4) {
-			defaultCount = results.get(0);
-			defaultAmountCents = results.get(1);
-			fallbackCount = results.get(2);
-			fallbackAmountCents = results.get(3);
+			defaultCount = Long.parseLong(String.valueOf(results.get(0)));
+			defaultAmountCents = Long.parseLong(String.valueOf(results.get(1)));
+			fallbackCount = Long.parseLong(String.valueOf(results.get(2)));
+			fallbackAmountCents = Long.parseLong(String.valueOf(results.get(3)));
 		}
 
 		Summary defaultSummary = new Summary(
