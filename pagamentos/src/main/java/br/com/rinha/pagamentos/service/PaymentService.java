@@ -42,16 +42,32 @@ public class PaymentService {
 	private static final RedisScript<List> GET_SUMMARY_SCRIPT =
 			new DefaultRedisScript<>(
 					"""
-					local results = redis.call('TS.MRANGE', ARGV[1], ARGV[2], 'AGGREGATION', 'sum', 0, 'AGGREGATION', 'count', 0, 'FILTER', 'processor=default', 'processor=fallback')
+					local timeBucket = 9999999999999
+	
+					local sum_results = redis.call('TS.MRANGE', ARGV[1], ARGV[2],
+					  'AGGREGATION', 'sum', timeBucket,
+					  'FILTER', 'processor=default', 'processor=fallback')
+	
+					local count_results = redis.call('TS.MRANGE', ARGV[1], ARGV[2],
+					  'AGGREGATION', 'count', timeBucket,
+					  'FILTER', 'processor=default', 'processor=fallback')
+	
 					local summary = {0, 0, 0, 0}
-					if results[1] and #results[1] > 0 and results[1][1][3] and #results[1][1][3] == 2 then
-						summary[1] = tonumber(results[1][1][3][2][2])
-						summary[2] = tonumber(results[1][1][3][1][2])
+	
+					if count_results[1] and #count_results[1] > 0 and count_results[1][1][3] and #count_results[1][1][3] > 0 then
+					   summary[1] = tonumber(count_results[1][1][3][1][2])
 					end
-					if results[2] and #results[2] > 0 and results[2][1][3] and #results[2][1][3] == 2 then
-						summary[3] = tonumber(results[2][1][3][2][2])
-						summary[4] = tonumber(results[2][1][3][1][2])
+					if count_results[2] and #count_results[2] > 0 and count_results[2][1][3] and #count_results[2][1][3] > 0 then
+					   summary[3] = tonumber(count_results[2][1][3][1][2])
 					end
+	
+					if sum_results[1] and #sum_results[1] > 0 and sum_results[1][1][3] and #sum_results[1][1][3] > 0 then
+					   summary[2] = tonumber(sum_results[1][1][3][1][2])
+					end
+					if sum_results[2] and #sum_results[2] > 0 and sum_results[2][1][3] and #sum_results[2][1][3] > 0 then
+					   summary[4] = tonumber(sum_results[2][1][3][1][2])
+					end
+	
 					return summary
 					""",
 					List.class
