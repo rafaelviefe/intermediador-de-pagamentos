@@ -1,7 +1,9 @@
 package br.com.rinha.pagamentos.service;
 
+import br.com.rinha.pagamentos.model.PaymentsSummaryResponse;
 import br.com.rinha.pagamentos.model.QueuedPayment;
 import br.com.rinha.pagamentos.model.PaymentSent;
+import br.com.rinha.pagamentos.model.Summary;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.connection.ReturnType;
@@ -15,8 +17,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
 
 @Service
 public class PaymentService {
@@ -25,12 +30,31 @@ public class PaymentService {
 	private static final String RETRY_QUEUE_KEY = "payments:retry-queue";
 	private static final String PROCESSED_PAYMENTS_TIMESERIES_KEY = "payments:processed:ts";
 	private static final int RETRY_THRESHOLD_FOR_FALLBACK = 3;
+	private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
 
 	private static final RedisScript<Long> PERSIST_PAYMENT_SCRIPT =
 			new DefaultRedisScript<>(
 					"redis.call('TS.ADD', KEYS[1], ARGV[1], ARGV[2], 'LABELS', 'processor', ARGV[3]); " +
 							"return redis.call('DEL', KEYS[2]);",
 					Long.class
+			);
+
+	private static final RedisScript<List> GET_SUMMARY_SCRIPT =
+			new DefaultRedisScript<>(
+					"""
+					local results = redis.call('TS.MRANGE', ARGV[1], ARGV[2], 'AGGREGATION', 'sum', 0, 'AGGREGATION', 'count', 0, 'FILTER', 'processor=default', 'processor=fallback')
+					local summary = {0, 0, 0, 0}
+					if results[1] and #results[1] > 0 and results[1][1][3] and #results[1][1][3] == 2 then
+						summary[1] = tonumber(results[1][1][3][2][2])
+						summary[2] = tonumber(results[1][1][3][1][2])
+					end
+					if results[2] and #results[2] > 0 and results[2][1][3] and #results[2][1][3] == 2 then
+						summary[3] = tonumber(results[2][1][3][2][2])
+						summary[4] = tonumber(results[2][1][3][1][2])
+					end
+					return summary
+					""",
+					List.class
 			);
 
 	private final RedisTemplate<String, QueuedPayment> paymentRedisTemplate;
@@ -101,7 +125,7 @@ public class PaymentService {
 
 	private void persistSuccessfulPayment(PaymentSent paymentSent, String processorKey) {
 		long amountInCents = paymentSent.getAmount()
-				.multiply(new BigDecimal("100"))
+				.multiply(ONE_HUNDRED)
 				.longValue();
 
 		healthCheckRedisTemplate.execute((RedisCallback<Object>) connection -> connection.scriptingCommands().eval(
@@ -118,5 +142,41 @@ public class PaymentService {
 
 	private boolean isProcessorAvailable(String processorKey) {
 		return healthCheckRedisTemplate.hasKey(HEALTH_FAILING_PREFIX + processorKey) != Boolean.TRUE;
+	}
+
+	public PaymentsSummaryResponse getPaymentsSummary(String from, String to) {
+		String fromTimestamp = (from != null) ? String.valueOf(Instant.parse(from).toEpochMilli()) : "-";
+		String toTimestamp = (to != null) ? String.valueOf(Instant.parse(to).toEpochMilli()) : "+";
+
+		List<Long> results = healthCheckRedisTemplate.execute(
+				GET_SUMMARY_SCRIPT,
+				List.of(PROCESSED_PAYMENTS_TIMESERIES_KEY),
+				fromTimestamp,
+				toTimestamp
+		);
+
+		long defaultCount = 0;
+		long defaultAmountCents = 0;
+		long fallbackCount = 0;
+		long fallbackAmountCents = 0;
+
+		if (results.size() == 4) {
+			defaultCount = results.get(0);
+			defaultAmountCents = results.get(1);
+			fallbackCount = results.get(2);
+			fallbackAmountCents = results.get(3);
+		}
+
+		Summary defaultSummary = new Summary(
+				defaultCount,
+				BigDecimal.valueOf(defaultAmountCents).divide(ONE_HUNDRED, 2, RoundingMode.UNNECESSARY)
+		);
+
+		Summary fallbackSummary = new Summary(
+				fallbackCount,
+				BigDecimal.valueOf(fallbackAmountCents).divide(ONE_HUNDRED, 2, RoundingMode.UNNECESSARY)
+		);
+
+		return new PaymentsSummaryResponse(defaultSummary, fallbackSummary);
 	}
 }
