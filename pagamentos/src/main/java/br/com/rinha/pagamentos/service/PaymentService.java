@@ -31,6 +31,7 @@ public class PaymentService {
 	private static final String HEALTH_FAILING_PREFIX = "health:failing:";
 	private static final String RETRY_QUEUE_KEY = "payments:retry-queue";
 	private static final String PROCESSED_PAYMENTS_TIMESERIES_KEY = "payments:processed:ts";
+	private static final String SEEN_CORRELATION_IDS_SET_KEY = "payments:seen:ids";
 	private static final int RETRY_THRESHOLD_FOR_FALLBACK = 3;
 	private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
 
@@ -47,17 +48,17 @@ public class PaymentService {
 					local summary = {0, 0, 0, 0}
 					
 					if redis.call('EXISTS', KEYS[1]) == 1 then
-						local default_sum_res = redis.call('TS.RANGE', KEYS[1], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
-						local default_count_res = redis.call('TS.RANGE', KEYS[1], ARGV[1], ARGV[2], 'AGGREGATION', 'count', timeBucket)
-						if #default_count_res > 0 then summary[1] = default_count_res[1][2] end
-						if #default_sum_res > 0 then summary[2] = default_sum_res[1][2] end
+					   local default_sum_res = redis.call('TS.RANGE', KEYS[1], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
+					   local default_count_res = redis.call('TS.RANGE', KEYS[1], ARGV[1], ARGV[2], 'AGGREGATION', 'count', timeBucket)
+					   if #default_count_res > 0 then summary[1] = default_count_res[1][2] end
+					   if #default_sum_res > 0 then summary[2] = default_sum_res[1][2] end
 					end
 					
 					if redis.call('EXISTS', KEYS[2]) == 1 then
-						local fallback_sum_res = redis.call('TS.RANGE', KEYS[2], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
-						local fallback_count_res = redis.call('TS.RANGE', KEYS[2], ARGV[1], ARGV[2], 'AGGREGATION', 'count', timeBucket)
-						if #fallback_count_res > 0 then summary[3] = fallback_count_res[1][2] end
-						if #fallback_sum_res > 0 then summary[4] = fallback_sum_res[1][2] end
+					   local fallback_sum_res = redis.call('TS.RANGE', KEYS[2], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
+					   local fallback_count_res = redis.call('TS.RANGE', KEYS[2], ARGV[1], ARGV[2], 'AGGREGATION', 'count', timeBucket)
+					   if #fallback_count_res > 0 then summary[3] = fallback_count_res[1][2] end
+					   if #fallback_sum_res > 0 then summary[4] = fallback_sum_res[1][2] end
 					end
 					
 					return summary
@@ -86,6 +87,12 @@ public class PaymentService {
 
 	@Async("virtualThreadExecutor")
 	public void processPayment(QueuedPayment payment) {
+		Long addedCount = healthCheckRedisTemplate.opsForSet().add(SEEN_CORRELATION_IDS_SET_KEY, payment.getCorrelationId().toString());
+
+		if (addedCount == null || addedCount == 0) {
+			return;
+		}
+
 		try {
 			if (isProcessorAvailable("default")) {
 				trySendToProcessor("default", processorDefaultUrl, payment);
@@ -132,13 +139,12 @@ public class PaymentService {
 		long amountInCents = paymentSent.getAmount()
 				.multiply(ONE_HUNDRED)
 				.longValue();
-		String dynamicTimeSeriesKey = PROCESSED_PAYMENTS_TIMESERIES_KEY + ":" + processorKey;
 
 		healthCheckRedisTemplate.execute((RedisCallback<Object>) connection -> connection.scriptingCommands().eval(
 				PERSIST_PAYMENT_SCRIPT.getScriptAsString().getBytes(StandardCharsets.UTF_8),
 				ReturnType.INTEGER,
 				2,
-				dynamicTimeSeriesKey.getBytes(StandardCharsets.UTF_8),
+				(PROCESSED_PAYMENTS_TIMESERIES_KEY + ":" + processorKey).getBytes(StandardCharsets.UTF_8),
 				(HEALTH_FAILING_PREFIX + processorKey).getBytes(StandardCharsets.UTF_8),
 				String.valueOf(paymentSent.getRequestedAt().toEpochMilli()).getBytes(StandardCharsets.UTF_8),
 				String.valueOf(amountInCents).getBytes(StandardCharsets.UTF_8)
