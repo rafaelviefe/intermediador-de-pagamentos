@@ -11,10 +11,10 @@ import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
-import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -95,10 +95,6 @@ public class PaymentService {
 
 	@Async("virtualThreadExecutor")
 	public void processPayment(QueuedPayment payment) {
-		if (Boolean.TRUE.equals(healthCheckRedisTemplate.opsForSet().isMember(SEEN_CORRELATION_IDS_SET_KEY, payment.getCorrelationId().toString()))) {
-			return;
-		}
-
 		try {
 			if (isProcessorAvailable("default")) {
 				trySendToProcessor("default", processorDefaultUrl, payment);
@@ -117,14 +113,17 @@ public class PaymentService {
 	}
 
 	private void trySendToProcessor(String processorKey, String url, QueuedPayment payment) {
+		PaymentSent paymentSent = new PaymentSent(payment);
 		try {
-			PaymentSent paymentSent = new PaymentSent(payment);
-			ResponseEntity<String> response = restTemplate.postForEntity(url, paymentSent, String.class);
-			if (response.getStatusCode().is2xxSuccessful()) {
-				persistSuccessfulPayment(paymentSent, processorKey);
-			} else {
+			restTemplate.postForEntity(url, paymentSent, String.class);
+			persistSuccessfulPayment(paymentSent, processorKey);
+
+		} catch (RestClientResponseException e) {
+			if (e.getStatusCode().is5xxServerError()) {
 				handleFailedAttempt(processorKey);
 				requeuePayment(payment);
+			} else {
+				persistSuccessfulPayment(paymentSent, processorKey);
 			}
 		} catch (RestClientException e) {
 			handleFailedAttempt(processorKey);
