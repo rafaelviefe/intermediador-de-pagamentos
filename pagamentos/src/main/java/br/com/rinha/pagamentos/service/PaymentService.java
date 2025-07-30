@@ -38,10 +38,13 @@ public class PaymentService {
 	private static final RedisScript<Long> PERSIST_PAYMENT_SCRIPT =
 			new DefaultRedisScript<>(
 					"""
+					if redis.call('SADD', KEYS[3], ARGV[3]) == 0 then
+					   return 0
+					end
+					
 					redis.call('TS.ADD', KEYS[1], ARGV[1], ARGV[2]);
 					redis.call('DEL', KEYS[2]);
-					redis.call('SADD', KEYS[3], ARGV[3]);
-					return 1;
+					return 1
 					""",
 					Long.class
 			);
