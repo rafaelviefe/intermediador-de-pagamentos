@@ -37,7 +37,12 @@ public class PaymentService {
 
 	private static final RedisScript<Long> PERSIST_PAYMENT_SCRIPT =
 			new DefaultRedisScript<>(
-					"redis.call('TS.ADD', KEYS[1], ARGV[1], ARGV[2]); return redis.call('DEL', KEYS[2]);",
+					"""
+					redis.call('TS.ADD', KEYS[1], ARGV[1], ARGV[2]);
+					redis.call('DEL', KEYS[2]);
+					redis.call('SADD', KEYS[3], ARGV[3]);
+					return 1;
+					""",
 					Long.class
 			);
 
@@ -87,9 +92,7 @@ public class PaymentService {
 
 	@Async("virtualThreadExecutor")
 	public void processPayment(QueuedPayment payment) {
-		Long addedCount = healthCheckRedisTemplate.opsForSet().add(SEEN_CORRELATION_IDS_SET_KEY, payment.getCorrelationId().toString());
-
-		if (addedCount == null || addedCount == 0) {
+		if (Boolean.TRUE.equals(healthCheckRedisTemplate.opsForSet().isMember(SEEN_CORRELATION_IDS_SET_KEY, payment.getCorrelationId().toString()))) {
 			return;
 		}
 
@@ -143,11 +146,13 @@ public class PaymentService {
 		healthCheckRedisTemplate.execute((RedisCallback<Object>) connection -> connection.scriptingCommands().eval(
 				PERSIST_PAYMENT_SCRIPT.getScriptAsString().getBytes(StandardCharsets.UTF_8),
 				ReturnType.INTEGER,
-				2,
+				3,
 				(PROCESSED_PAYMENTS_TIMESERIES_KEY + ":" + processorKey).getBytes(StandardCharsets.UTF_8),
 				(HEALTH_FAILING_PREFIX + processorKey).getBytes(StandardCharsets.UTF_8),
+				SEEN_CORRELATION_IDS_SET_KEY.getBytes(StandardCharsets.UTF_8),
 				String.valueOf(paymentSent.getRequestedAt().toEpochMilli()).getBytes(StandardCharsets.UTF_8),
-				String.valueOf(amountInCents).getBytes(StandardCharsets.UTF_8)
+				String.valueOf(amountInCents).getBytes(StandardCharsets.UTF_8),
+				paymentSent.getCorrelationId().toString().getBytes(StandardCharsets.UTF_8)
 		));
 	}
 
