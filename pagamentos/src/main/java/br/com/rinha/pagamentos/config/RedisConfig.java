@@ -17,7 +17,7 @@ public class RedisConfig {
 
 	@Bean
 	@Primary
-	@Qualifier("paymentRedisTemplate")
+	@Qualifier("queuedRedisTemplate")
 	public RedisTemplate<String, QueuedPayment> paymentRedisTemplate(RedisConnectionFactory connectionFactory) {
 		RedisTemplate<String, QueuedPayment> template = new RedisTemplate<>();
 		template.setConnectionFactory(connectionFactory);
@@ -33,7 +33,7 @@ public class RedisConfig {
 	}
 
 	@Bean
-	@Qualifier("healthCheckRedisTemplate")
+	@Qualifier("persistedRedisTemplate")
 	public RedisTemplate<String, String> healthCheckRedisTemplate(RedisConnectionFactory connectionFactory) {
 		RedisTemplate<String, String> template = new RedisTemplate<>();
 		template.setConnectionFactory(connectionFactory);
@@ -44,7 +44,7 @@ public class RedisConfig {
 	}
 
 	@Bean
-	public ApplicationRunner redisTimeSeriesInitializer(@Qualifier("healthCheckRedisTemplate") RedisTemplate<String, String> redisTemplate) {
+	public ApplicationRunner redisTimeSeriesInitializer(@Qualifier("persistedRedisTemplate") RedisTemplate<String, String> redisTemplate) {
 		return args -> {
 			redisTemplate.execute((RedisConnection connection) -> {
 				createTimeSeriesIfNotExists(connection, "payments:amount:ts:default");

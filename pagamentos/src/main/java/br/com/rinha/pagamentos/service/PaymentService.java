@@ -18,7 +18,6 @@ import org.springframework.web.client.RestTemplate;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
@@ -29,18 +28,15 @@ public class PaymentService {
 
 	private static final String PAYMENTS_AMOUNT_TS_KEY = "payments:amount:ts";
 	private static final String PAYMENTS_COUNT_TS_KEY = "payments:count:ts";
-	private static final String HEALTH_FAILING_PREFIX = "health:failing:";
 	private static final String RETRY_QUEUE_KEY = "payments:retry-queue";
-	private static final int RETRY_THRESHOLD_FOR_FALLBACK = 3;
+	private static final int RETRY_THRESHOLD_FOR_FALLBACK = 2;
 	private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
 
 	private static final RedisScript<Long> PERSIST_PAYMENT_SCRIPT =
 			new DefaultRedisScript<>(
-					"""					
+					"""
 					redis.call('TS.ADD', KEYS[1], ARGV[2], ARGV[1], 'ON_DUPLICATE', 'SUM')
 					redis.call('TS.ADD', KEYS[2], ARGV[2], 1, 'ON_DUPLICATE', 'SUM')
-					
-					redis.call('DEL', KEYS[3])
 					return 1
 					""",
 					Long.class
@@ -50,33 +46,26 @@ public class PaymentService {
 			new DefaultRedisScript<>(
 					"""
 					local timeBucket = 9999999999999
-					
 					local summary = {0, 0, 0, 0}
-					
 					if redis.call('EXISTS', KEYS[1]) == 1 then
-					
 					   local default_sum_res = redis.call('TS.RANGE', KEYS[1], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
 					   if #default_sum_res > 0 then summary[2] = default_sum_res[1][2] end
-					
 					   local default_count_res = redis.call('TS.RANGE', KEYS[2], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
 					   if #default_count_res > 0 then summary[1] = default_count_res[1][2] end
 					end
-					
 					if redis.call('EXISTS', KEYS[3]) == 1 then
 					   local fallback_sum_res = redis.call('TS.RANGE', KEYS[3], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
 					   if #fallback_sum_res > 0 then summary[4] = fallback_sum_res[1][2] end
-					
 					   local fallback_count_res = redis.call('TS.RANGE', KEYS[4], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
 					   if #fallback_count_res > 0 then summary[3] = fallback_count_res[1][2] end
 					end
-					
 					return summary
 					""",
 					List.class
 			);
 
-	private final RedisTemplate<String, QueuedPayment> paymentRedisTemplate;
-	private final RedisTemplate<String, String> healthCheckRedisTemplate;
+	private final RedisTemplate<String, QueuedPayment> queuedRedisTemplate;
+	private final RedisTemplate<String, String> persistedRedisTemplate;
 	private final RestTemplate restTemplate;
 
 	@Value("${processor.default.payments.url}")
@@ -86,30 +75,20 @@ public class PaymentService {
 	private String processorFallbackUrl;
 
 	public PaymentService(
-			@Qualifier("paymentRedisTemplate") RedisTemplate<String, QueuedPayment> paymentRedisTemplate,
-			@Qualifier("healthCheckRedisTemplate") RedisTemplate<String, String> healthCheckRedisTemplate,
+			@Qualifier("queuedRedisTemplate") RedisTemplate<String, QueuedPayment> queuedRedisTemplate,
+			@Qualifier("persistedRedisTemplate") RedisTemplate<String, String> persistedRedisTemplate,
 			RestTemplate restTemplate) {
-		this.paymentRedisTemplate = paymentRedisTemplate;
-		this.healthCheckRedisTemplate = healthCheckRedisTemplate;
+		this.queuedRedisTemplate = queuedRedisTemplate;
+		this.persistedRedisTemplate = persistedRedisTemplate;
 		this.restTemplate = restTemplate;
 	}
 
 	@Async("virtualThreadExecutor")
 	public void processPayment(QueuedPayment payment) {
-		try {
-			if (isProcessorAvailable("default")) {
-				trySendToProcessor("default", processorDefaultUrl, payment);
-				return;
-			}
-			if (payment.getRetries() > RETRY_THRESHOLD_FOR_FALLBACK) {
-				if (isProcessorAvailable("fallback")) {
-					trySendToProcessor("fallback", processorFallbackUrl, payment);
-					return;
-				}
-			}
-			requeuePayment(payment);
-		} catch (Exception e) {
-			requeuePayment(payment);
+		if (payment.getRetries() > RETRY_THRESHOLD_FOR_FALLBACK) {
+			trySendToProcessor("fallback", processorFallbackUrl, payment);
+		} else {
+			trySendToProcessor("default", processorDefaultUrl, payment);
 		}
 	}
 
@@ -119,35 +98,25 @@ public class PaymentService {
 			restTemplate.postForEntity(url, paymentSent, String.class);
 			persistSuccessfulPayment(paymentSent, processorKey);
 		} catch (RestClientException e) {
-			handleFailedAttempt(processorKey);
 			requeuePayment(payment);
 		}
 	}
 
-	private void handleFailedAttempt(String processorKey) {
-		healthCheckRedisTemplate.opsForValue().set(HEALTH_FAILING_PREFIX + processorKey, "1", Duration.ofSeconds(5));
-	}
-
 	private void requeuePayment(QueuedPayment payment) {
 		payment.setRetries(payment.getRetries() + 1);
-		paymentRedisTemplate.opsForList().leftPush(RETRY_QUEUE_KEY, payment);
+		queuedRedisTemplate.opsForList().leftPush(RETRY_QUEUE_KEY, payment);
 	}
 
 	private void persistSuccessfulPayment(PaymentSent paymentSent, String processorKey) {
-		healthCheckRedisTemplate.execute((RedisCallback<Object>) connection -> connection.scriptingCommands().eval(
+		persistedRedisTemplate.execute((RedisCallback<Object>) connection -> connection.scriptingCommands().eval(
 				PERSIST_PAYMENT_SCRIPT.getScriptAsString().getBytes(StandardCharsets.UTF_8),
 				ReturnType.INTEGER,
-				3,
+				2,
 				(PAYMENTS_AMOUNT_TS_KEY + ":" + processorKey).getBytes(StandardCharsets.UTF_8),
 				(PAYMENTS_COUNT_TS_KEY + ":" + processorKey).getBytes(StandardCharsets.UTF_8),
-				(HEALTH_FAILING_PREFIX + processorKey).getBytes(StandardCharsets.UTF_8),
 				String.valueOf(paymentSent.getAmount().multiply(ONE_HUNDRED).longValue()).getBytes(StandardCharsets.UTF_8),
 				String.valueOf(paymentSent.getRequestedAt().toEpochMilli()).getBytes(StandardCharsets.UTF_8)
 		));
-	}
-
-	private boolean isProcessorAvailable(String processorKey) {
-		return healthCheckRedisTemplate.hasKey(HEALTH_FAILING_PREFIX + processorKey) != Boolean.TRUE;
 	}
 
 	public PaymentsSummaryResponse getPaymentsSummary(String from, String to) {
@@ -160,7 +129,7 @@ public class PaymentService {
 		String fallbackCountKey = PAYMENTS_COUNT_TS_KEY + ":fallback";
 
 		List<Object> results = Optional.ofNullable(
-				healthCheckRedisTemplate.execute(
+				persistedRedisTemplate.execute(
 						GET_SUMMARY_SCRIPT,
 						List.of(defaultAmountKey, defaultCountKey, fallbackAmountKey, fallbackCountKey),
 						fromTimestamp,
