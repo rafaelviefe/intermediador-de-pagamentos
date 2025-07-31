@@ -31,17 +31,12 @@ public class PaymentService {
 	private static final String HEALTH_FAILING_PREFIX = "health:failing:";
 	private static final String RETRY_QUEUE_KEY = "payments:retry-queue";
 	private static final String PROCESSED_PAYMENTS_TIMESERIES_KEY = "payments:processed:ts";
-	private static final String SEEN_CORRELATION_IDS_SET_KEY = "payments:seen:ids";
 	private static final int RETRY_THRESHOLD_FOR_FALLBACK = 3;
 	private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
 
 	private static final RedisScript<Long> PERSIST_PAYMENT_SCRIPT =
 			new DefaultRedisScript<>(
 					"""
-					if redis.call('SADD', KEYS[3], ARGV[2]) == 0 then
-					   return 0
-					end
-					
 					redis.call('TS.ADD', KEYS[1], '*', ARGV[1]);
 					redis.call('DEL', KEYS[2]);
 					return 1
@@ -148,12 +143,10 @@ public class PaymentService {
 		healthCheckRedisTemplate.execute((RedisCallback<Object>) connection -> connection.scriptingCommands().eval(
 				PERSIST_PAYMENT_SCRIPT.getScriptAsString().getBytes(StandardCharsets.UTF_8),
 				ReturnType.INTEGER,
-				3,
+				2,
 				(PROCESSED_PAYMENTS_TIMESERIES_KEY + ":" + processorKey).getBytes(StandardCharsets.UTF_8),
 				(HEALTH_FAILING_PREFIX + processorKey).getBytes(StandardCharsets.UTF_8),
-				SEEN_CORRELATION_IDS_SET_KEY.getBytes(StandardCharsets.UTF_8),
-				String.valueOf(amountInCents).getBytes(StandardCharsets.UTF_8),
-				paymentSent.getCorrelationId().toString().getBytes(StandardCharsets.UTF_8)
+				String.valueOf(amountInCents).getBytes(StandardCharsets.UTF_8)
 		));
 	}
 
