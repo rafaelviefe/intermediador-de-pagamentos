@@ -14,7 +14,6 @@ import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -37,14 +36,9 @@ public class PaymentService {
 
 	private static final RedisScript<Long> PERSIST_PAYMENT_SCRIPT =
 			new DefaultRedisScript<>(
-					"""
-					-- KEYS[1]: payments:amount:ts:<processor>
-					-- KEYS[2]: payments:count:ts:<processor>
-					-- KEYS[3]: health:failing:<processor>
-					-- ARGV[1]: amountInCents
-					
-					redis.call('TS.ADD', KEYS[1], '*', ARGV[1], 'ON_DUPLICATE', 'SUM')
-					redis.call('TS.ADD', KEYS[2], '*', 1, 'ON_DUPLICATE', 'SUM')
+					"""					
+					redis.call('TS.ADD', KEYS[1], ARGV[2], ARGV[1], 'ON_DUPLICATE', 'SUM')
+					redis.call('TS.ADD', KEYS[2], ARGV[2], 1, 'ON_DUPLICATE', 'SUM')
 					
 					redis.call('DEL', KEYS[3])
 					return 1
@@ -55,13 +49,6 @@ public class PaymentService {
 	private static final RedisScript<List> GET_SUMMARY_SCRIPT =
 			new DefaultRedisScript<>(
 					"""
-					-- KEYS[1]: payments:amount:ts:default
-					-- KEYS[2]: payments:count:ts:default
-					-- KEYS[3]: payments:amount:ts:fallback
-					-- KEYS[4]: payments:count:ts:fallback
-					-- ARGV[1]: fromTimestamp
-					-- ARGV[2]: toTimestamp
-					
 					local timeBucket = 9999999999999
 					
 					local summary = {0, 0, 0, 0}
@@ -154,7 +141,8 @@ public class PaymentService {
 				(PAYMENTS_AMOUNT_TS_KEY + ":" + processorKey).getBytes(StandardCharsets.UTF_8),
 				(PAYMENTS_COUNT_TS_KEY + ":" + processorKey).getBytes(StandardCharsets.UTF_8),
 				(HEALTH_FAILING_PREFIX + processorKey).getBytes(StandardCharsets.UTF_8),
-				String.valueOf(paymentSent.getAmount().multiply(ONE_HUNDRED).longValue()).getBytes(StandardCharsets.UTF_8)
+				String.valueOf(paymentSent.getAmount().multiply(ONE_HUNDRED).longValue()).getBytes(StandardCharsets.UTF_8),
+				String.valueOf(paymentSent.getRequestedAt().toEpochMilli()).getBytes(StandardCharsets.UTF_8)
 		));
 	}
 
