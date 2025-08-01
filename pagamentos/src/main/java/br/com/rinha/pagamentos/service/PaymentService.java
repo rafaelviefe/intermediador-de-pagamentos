@@ -74,19 +74,23 @@ public class PaymentService {
 		this.webClient = webClientBuilder.build();
 	}
 
+	@Async("virtualThreadExecutor")
 	public void queuePayment(QueuedPayment payment) {
 		queuedRedisTemplate.opsForList().leftPush(PROCESSING_QUEUE_KEY, payment);
 	}
 
-	@Async("virtualThreadExecutor")
 	public void processPayment(QueuedPayment payment) {
 		PaymentSent paymentSent = new PaymentSent(payment);
 		trySendAndPersist("default", processorDefaultUrl, paymentSent)
 				.filter(Boolean::booleanValue)
 				.switchIfEmpty(trySendAndPersist("fallback", processorFallbackUrl, paymentSent))
 				.filter(Boolean::booleanValue)
-				.switchIfEmpty(Mono.fromRunnable(() -> queuePayment(payment)).then(Mono.just(false)))
+				.switchIfEmpty(Mono.fromRunnable(() -> requeuePayment(payment)).then(Mono.just(false)))
 				.subscribe();
+	}
+
+	public void requeuePayment(QueuedPayment payment) {
+		queuedRedisTemplate.opsForList().leftPush(PROCESSING_QUEUE_KEY, payment);
 	}
 
 	private Mono<Boolean> trySendAndPersist(String processorKey, String url, PaymentSent paymentSent) {
