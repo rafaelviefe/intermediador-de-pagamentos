@@ -28,7 +28,7 @@ import java.util.Optional;
 public class PaymentService {
 	private static final String PAYMENTS_AMOUNT_TS_KEY = "payments:amount:ts";
 	private static final String PAYMENTS_COUNT_TS_KEY = "payments:count:ts";
-	private static final String RETRY_QUEUE_KEY = "payments:retry-queue";
+	private static final String PROCESSING_QUEUE_KEY = "payments:processing-queue";
 	private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
 	private static final RedisScript<Long> PERSIST_PAYMENT_SCRIPT =
 			new DefaultRedisScript<>(
@@ -78,6 +78,10 @@ public class PaymentService {
 		this.webClient = webClientBuilder.build();
 	}
 
+	public void queuePayment(QueuedPayment payment) {
+		queuedRedisTemplate.opsForList().leftPush(PROCESSING_QUEUE_KEY, payment);
+	}
+
 	@Async("virtualThreadExecutor")
 	public void processPayment(QueuedPayment payment) {
 		PaymentSent paymentSent = new PaymentSent(payment);
@@ -85,7 +89,7 @@ public class PaymentService {
 				.filter(Boolean::booleanValue)
 				.switchIfEmpty(trySendAndPersist("fallback", processorFallbackUrl, paymentSent))
 				.filter(Boolean::booleanValue)
-				.switchIfEmpty(Mono.fromRunnable(() -> requeuePayment(payment)).then(Mono.just(false)))
+				.switchIfEmpty(Mono.fromRunnable(() -> queuePayment(payment)).then(Mono.just(false)))
 				.subscribe();
 	}
 
@@ -101,10 +105,6 @@ public class PaymentService {
 					}
 					return Mono.just(false);
 				});
-	}
-
-	private void requeuePayment(QueuedPayment payment) {
-		queuedRedisTemplate.opsForList().leftPush(RETRY_QUEUE_KEY, payment);
 	}
 
 	private void persistSuccessfulPayment(PaymentSent paymentSent, String processorKey) {

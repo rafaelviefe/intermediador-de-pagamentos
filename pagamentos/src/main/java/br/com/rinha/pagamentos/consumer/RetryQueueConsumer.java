@@ -7,7 +7,6 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationListener;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
-
 import java.time.Duration;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -16,7 +15,7 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class RetryQueueConsumer implements ApplicationListener<ApplicationReadyEvent> {
 
-	private static final String RETRY_QUEUE_KEY = "payments:retry-queue";
+	private static final String PROCESSING_QUEUE_KEY = "payments:processing-queue";
 	private static final long BLOCKING_TIMEOUT_SECONDS = 5;
 
 	private final ExecutorService virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
@@ -24,7 +23,7 @@ public class RetryQueueConsumer implements ApplicationListener<ApplicationReadyE
 	private final RedisTemplate<String, QueuedPayment> redisTemplate;
 	private final PaymentService paymentService;
 
-	@Value("${retry.consumer.concurrency:60}")
+	@Value("${retry.consumer.concurrency:8}")
 	private int concurrencyLevel;
 
 	public RetryQueueConsumer(RedisTemplate<String, QueuedPayment> redisTemplate, PaymentService paymentService) {
@@ -43,7 +42,7 @@ public class RetryQueueConsumer implements ApplicationListener<ApplicationReadyE
 		while (!Thread.currentThread().isInterrupted()) {
 			try {
 				QueuedPayment payment = redisTemplate.opsForList().rightPop(
-						RETRY_QUEUE_KEY,
+						PROCESSING_QUEUE_KEY,
 						Duration.ofSeconds(BLOCKING_TIMEOUT_SECONDS)
 				);
 
