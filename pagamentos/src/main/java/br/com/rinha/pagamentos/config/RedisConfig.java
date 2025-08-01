@@ -56,10 +56,19 @@ public class RedisConfig {
 		};
 	}
 
+	private static final String CREATE_TS_IF_NOT_EXISTS_SCRIPT =
+			"if redis.call('EXISTS', KEYS[1]) == 0 then " +
+					"  return redis.call('TS.CREATE', KEYS[1], 'DUPLICATE_POLICY', 'SUM') " +
+					"else " +
+					"  return 'OK' " +
+					"end";
+
 	private void createTimeSeriesIfNotExists(RedisConnection connection, String key) {
-		byte[] keyBytes = key.getBytes(StandardCharsets.UTF_8);
-		if (connection.keyCommands().exists(keyBytes) == Boolean.FALSE) {
-			connection.execute("TS.CREATE", keyBytes, "DUPLICATE_POLICY".getBytes(StandardCharsets.UTF_8), "SUM".getBytes(StandardCharsets.UTF_8));
-		}
+		connection.scriptingCommands().eval(
+				CREATE_TS_IF_NOT_EXISTS_SCRIPT.getBytes(StandardCharsets.UTF_8),
+				org.springframework.data.redis.connection.ReturnType.STATUS,
+				1,
+				key.getBytes(StandardCharsets.UTF_8)
+		);
 	}
 }
