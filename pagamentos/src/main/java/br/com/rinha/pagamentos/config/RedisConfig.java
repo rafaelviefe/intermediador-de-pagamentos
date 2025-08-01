@@ -18,7 +18,7 @@ public class RedisConfig {
 	@Bean
 	@Primary
 	@Qualifier("queuedRedisTemplate")
-	public RedisTemplate<String, QueuedPayment> paymentRedisTemplate(RedisConnectionFactory connectionFactory) {
+	public RedisTemplate<String, QueuedPayment> queuedRedisTemplate(RedisConnectionFactory connectionFactory) {
 		RedisTemplate<String, QueuedPayment> template = new RedisTemplate<>();
 		template.setConnectionFactory(connectionFactory);
 
@@ -34,7 +34,7 @@ public class RedisConfig {
 
 	@Bean
 	@Qualifier("persistedRedisTemplate")
-	public RedisTemplate<String, String> healthCheckRedisTemplate(RedisConnectionFactory connectionFactory) {
+	public RedisTemplate<String, String> persistedRedisTemplate(RedisConnectionFactory connectionFactory) {
 		RedisTemplate<String, String> template = new RedisTemplate<>();
 		template.setConnectionFactory(connectionFactory);
 		template.setKeySerializer(new StringRedisSerializer());
