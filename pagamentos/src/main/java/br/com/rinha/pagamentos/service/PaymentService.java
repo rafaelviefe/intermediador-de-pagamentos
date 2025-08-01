@@ -11,10 +11,13 @@ import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.DefaultResponseErrorHandler;
 import org.springframework.web.client.RestTemplate;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
@@ -75,6 +78,13 @@ public class PaymentService {
 		this.queuedRedisTemplate = queuedRedisTemplate;
 		this.persistedRedisTemplate = persistedRedisTemplate;
 		this.restTemplate = restTemplate;
+
+		this.restTemplate.setErrorHandler(new DefaultResponseErrorHandler() {
+			@Override
+			public boolean hasError(ClientHttpResponse response) throws IOException {
+				return false;
+			}
+		});
 	}
 
 	@Async("virtualThreadExecutor")
@@ -90,13 +100,12 @@ public class PaymentService {
 	}
 
 	private boolean trySendToProcessor(String processorKey, String url, PaymentSent paymentSent) {
-		try {
-			restTemplate.postForEntity(url, paymentSent, String.class);
+		ResponseEntity<String> response = restTemplate.postForEntity(url, paymentSent, String.class);
+		if (response.getStatusCode().is2xxSuccessful()) {
 			persistSuccessfulPayment(paymentSent, processorKey);
 			return true;
-		} catch (RestClientException e) {
-			return false;
 		}
+		return false;
 	}
 
 	private void requeuePayment(QueuedPayment payment) {
