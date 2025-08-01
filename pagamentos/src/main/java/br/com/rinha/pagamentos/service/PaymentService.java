@@ -11,13 +11,11 @@ import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
-import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.DefaultResponseErrorHandler;
-import org.springframework.web.client.RestTemplate;
-import java.io.IOException;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
@@ -64,7 +62,7 @@ public class PaymentService {
 			);
 	private final RedisTemplate<String, QueuedPayment> queuedRedisTemplate;
 	private final RedisTemplate<String, String> persistedRedisTemplate;
-	private final RestTemplate restTemplate;
+	private final WebClient webClient;
 
 	@Value("${processor.default.payments.url}")
 	private String processorDefaultUrl;
@@ -74,38 +72,35 @@ public class PaymentService {
 	public PaymentService(
 			@Qualifier("queuedRedisTemplate") RedisTemplate<String, QueuedPayment> queuedRedisTemplate,
 			@Qualifier("persistedRedisTemplate") RedisTemplate<String, String> persistedRedisTemplate,
-			RestTemplate restTemplate) {
+			WebClient.Builder webClientBuilder) {
 		this.queuedRedisTemplate = queuedRedisTemplate;
 		this.persistedRedisTemplate = persistedRedisTemplate;
-		this.restTemplate = restTemplate;
-
-		this.restTemplate.setErrorHandler(new DefaultResponseErrorHandler() {
-			@Override
-			public boolean hasError(ClientHttpResponse response) throws IOException {
-				return false;
-			}
-		});
+		this.webClient = webClientBuilder.build();
 	}
 
 	@Async("virtualThreadExecutor")
 	public void processPayment(QueuedPayment payment) {
 		PaymentSent paymentSent = new PaymentSent(payment);
-		if (trySendToProcessor("default", processorDefaultUrl, paymentSent)) {
-			return;
-		}
-		if (trySendToProcessor("fallback", processorFallbackUrl, paymentSent)) {
-			return;
-		}
-		requeuePayment(payment);
+		trySendAndPersist("default", processorDefaultUrl, paymentSent)
+				.filter(Boolean::booleanValue)
+				.switchIfEmpty(trySendAndPersist("fallback", processorFallbackUrl, paymentSent))
+				.filter(Boolean::booleanValue)
+				.switchIfEmpty(Mono.fromRunnable(() -> requeuePayment(payment)).then(Mono.just(false)))
+				.subscribe();
 	}
 
-	private boolean trySendToProcessor(String processorKey, String url, PaymentSent paymentSent) {
-		ResponseEntity<String> response = restTemplate.postForEntity(url, paymentSent, String.class);
-		if (response.getStatusCode().is2xxSuccessful()) {
-			persistSuccessfulPayment(paymentSent, processorKey);
-			return true;
-		}
-		return false;
+	private Mono<Boolean> trySendAndPersist(String processorKey, String url, PaymentSent paymentSent) {
+		return webClient.post()
+				.uri(url)
+				.bodyValue(paymentSent)
+				.exchangeToMono(response -> {
+					if (response.statusCode().is2xxSuccessful()) {
+						return Mono.fromRunnable(() -> persistSuccessfulPayment(paymentSent, processorKey))
+								.subscribeOn(Schedulers.boundedElastic())
+								.thenReturn(true);
+					}
+					return Mono.just(false);
+				});
 	}
 
 	private void requeuePayment(QueuedPayment payment) {
