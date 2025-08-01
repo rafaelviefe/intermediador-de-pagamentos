@@ -44,18 +44,14 @@ public class PaymentService {
 					"""
 					local timeBucket = 9999999999999
 					local summary = {0, 0, 0, 0}
-					if redis.call('EXISTS', KEYS[1]) == 1 then
-					   local default_sum_res = redis.call('TS.RANGE', KEYS[1], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
-					   if #default_sum_res > 0 then summary[2] = default_sum_res[1][2] end
-					   local default_count_res = redis.call('TS.RANGE', KEYS[2], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
-					   if #default_count_res > 0 then summary[1] = default_count_res[1][2] end
-					end
-					if redis.call('EXISTS', KEYS[3]) == 1 then
-					   local fallback_sum_res = redis.call('TS.RANGE', KEYS[3], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
-					   if #fallback_sum_res > 0 then summary[4] = fallback_sum_res[1][2] end
-					   local fallback_count_res = redis.call('TS.RANGE', KEYS[4], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
-					   if #fallback_count_res > 0 then summary[3] = fallback_count_res[1][2] end
-					end
+					local default_sum_res = redis.call('TS.RANGE', KEYS[1], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
+					if #default_sum_res > 0 then summary[2] = default_sum_res[1][2] end
+					local default_count_res = redis.call('TS.RANGE', KEYS[2], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
+					if #default_count_res > 0 then summary[1] = default_count_res[1][2] end
+					local fallback_sum_res = redis.call('TS.RANGE', KEYS[3], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
+					if #fallback_sum_res > 0 then summary[4] = fallback_sum_res[1][2] end
+					local fallback_count_res = redis.call('TS.RANGE', KEYS[4], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
+					if #fallback_count_res > 0 then summary[3] = fallback_count_res[1][2] end
 					return summary
 					""",
 					List.class
