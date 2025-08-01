@@ -23,7 +23,7 @@ public class RetryQueueConsumer implements ApplicationListener<ApplicationReadyE
 	private final RedisTemplate<String, QueuedPayment> redisTemplate;
 	private final PaymentService paymentService;
 
-	@Value("${retry.consumer.concurrency:8}")
+	@Value("${retry.consumer.concurrency:25}")
 	private int concurrencyLevel;
 
 	public RetryQueueConsumer(RedisTemplate<String, QueuedPayment> redisTemplate, PaymentService paymentService) {
