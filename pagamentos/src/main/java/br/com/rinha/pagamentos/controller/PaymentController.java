@@ -21,7 +21,7 @@ public class PaymentController {
 	@PostMapping
 	public ResponseEntity<Void> createPayment(@RequestBody QueuedPayment request) {
 
-		paymentService.processPayment(request);
+		paymentService.queuePayment(request);
 
 		return ResponseEntity.noContent().build();
 	}
