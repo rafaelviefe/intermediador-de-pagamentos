@@ -25,13 +25,10 @@ import java.util.Optional;
 
 @Service
 public class PaymentService {
-
 	private static final String PAYMENTS_AMOUNT_TS_KEY = "payments:amount:ts";
 	private static final String PAYMENTS_COUNT_TS_KEY = "payments:count:ts";
 	private static final String RETRY_QUEUE_KEY = "payments:retry-queue";
-	private static final int RETRY_THRESHOLD_FOR_FALLBACK = 2;
 	private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
-
 	private static final RedisScript<Long> PERSIST_PAYMENT_SCRIPT =
 			new DefaultRedisScript<>(
 					"""
@@ -41,7 +38,6 @@ public class PaymentService {
 					""",
 					Long.class
 			);
-
 	private static final RedisScript<List> GET_SUMMARY_SCRIPT =
 			new DefaultRedisScript<>(
 					"""
@@ -63,14 +59,12 @@ public class PaymentService {
 					""",
 					List.class
 			);
-
 	private final RedisTemplate<String, QueuedPayment> queuedRedisTemplate;
 	private final RedisTemplate<String, String> persistedRedisTemplate;
 	private final RestTemplate restTemplate;
 
 	@Value("${processor.default.payments.url}")
 	private String processorDefaultUrl;
-
 	@Value("${processor.fallback.payments.url}")
 	private String processorFallbackUrl;
 
@@ -85,25 +79,27 @@ public class PaymentService {
 
 	@Async("virtualThreadExecutor")
 	public void processPayment(QueuedPayment payment) {
-		if (payment.getRetries() > RETRY_THRESHOLD_FOR_FALLBACK) {
-			trySendToProcessor("fallback", processorFallbackUrl, payment);
-		} else {
-			trySendToProcessor("default", processorDefaultUrl, payment);
+		PaymentSent paymentSent = new PaymentSent(payment);
+		if (trySendToProcessor("default", processorDefaultUrl, paymentSent)) {
+			return;
 		}
+		if (trySendToProcessor("fallback", processorFallbackUrl, paymentSent)) {
+			return;
+		}
+		requeuePayment(payment);
 	}
 
-	private void trySendToProcessor(String processorKey, String url, QueuedPayment payment) {
-		PaymentSent paymentSent = new PaymentSent(payment);
+	private boolean trySendToProcessor(String processorKey, String url, PaymentSent paymentSent) {
 		try {
 			restTemplate.postForEntity(url, paymentSent, String.class);
 			persistSuccessfulPayment(paymentSent, processorKey);
+			return true;
 		} catch (RestClientException e) {
-			requeuePayment(payment);
+			return false;
 		}
 	}
 
 	private void requeuePayment(QueuedPayment payment) {
-		payment.setRetries(payment.getRetries() + 1);
 		queuedRedisTemplate.opsForList().leftPush(RETRY_QUEUE_KEY, payment);
 	}
 
@@ -141,7 +137,6 @@ public class PaymentService {
 		long defaultAmountCents = 0;
 		long fallbackCount = 0;
 		long fallbackAmountCents = 0;
-
 		if (results.size() == 4) {
 			defaultCount = Long.parseLong(String.valueOf(results.get(0)));
 			defaultAmountCents = Long.parseLong(String.valueOf(results.get(1)));
@@ -153,12 +148,10 @@ public class PaymentService {
 				defaultCount,
 				BigDecimal.valueOf(defaultAmountCents).divide(ONE_HUNDRED, 2, RoundingMode.UNNECESSARY)
 		);
-
 		Summary fallbackSummary = new Summary(
 				fallbackCount,
 				BigDecimal.valueOf(fallbackAmountCents).divide(ONE_HUNDRED, 2, RoundingMode.UNNECESSARY)
 		);
-
 		return new PaymentsSummaryResponse(defaultSummary, fallbackSummary);
 	}
 }
