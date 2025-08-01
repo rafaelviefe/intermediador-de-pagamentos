@@ -11,9 +11,9 @@ public class QueuedPayment {
 	public QueuedPayment() {
 	}
 
-	public QueuedPayment(PaymentReceived request) {
-		this.correlationId = request.getCorrelationId();
-		this.amount = request.getAmount();
+	public QueuedPayment(BigDecimal amount, UUID correlationId) {
+		this.amount = amount;
+		this.correlationId = correlationId;
 	}
 
 	public UUID getCorrelationId() {
