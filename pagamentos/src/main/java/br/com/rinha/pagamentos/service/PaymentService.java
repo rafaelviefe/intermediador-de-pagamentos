@@ -29,11 +29,7 @@ public class PaymentService {
 	private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
 	private static final RedisScript<Long> PERSIST_PAYMENT_SCRIPT =
 			new DefaultRedisScript<>(
-					"""
-					redis.call('TS.ADD', KEYS[1], ARGV[2], ARGV[1], 'ON_DUPLICATE', 'SUM')
-					redis.call('TS.ADD', KEYS[2], ARGV[2], 1, 'ON_DUPLICATE', 'SUM')
-					return 1
-					""",
+					"redis.call('TS.MADD', KEYS[1], ARGV[1], ARGV[2], KEYS[2], ARGV[1], 1); return 1",
 					Long.class
 			);
 	private static final RedisScript<List> GET_SUMMARY_SCRIPT =
@@ -110,31 +106,24 @@ public class PaymentService {
 		String amountKey = PAYMENTS_AMOUNT_TS_KEY + ":" + processorKey;
 		String countKey = PAYMENTS_COUNT_TS_KEY + ":" + processorKey;
 
-		String amount = String.valueOf(paymentSent.getAmount().multiply(ONE_HUNDRED).longValue());
 		String timestamp = String.valueOf(paymentSent.getRequestedAt().toEpochMilli());
+		String amount = String.valueOf(paymentSent.getAmount().multiply(ONE_HUNDRED).longValue());
 
 		return reactivePersistedRedisTemplate.execute(
 				PERSIST_PAYMENT_SCRIPT,
 				List.of(amountKey, countKey),
-				List.of(amount, timestamp)
+				List.of(timestamp, amount)
 		).next();
 	}
 
 	public PaymentsSummaryResponse getPaymentsSummary(String from, String to) {
-		String fromTimestamp = (from != null) ? String.valueOf(Instant.parse(from).toEpochMilli()) : "-";
-		String toTimestamp = (to != null) ? String.valueOf(Instant.parse(to).toEpochMilli()) : "+";
-
-		String defaultAmountKey = PAYMENTS_AMOUNT_TS_KEY + ":default";
-		String defaultCountKey = PAYMENTS_COUNT_TS_KEY + ":default";
-		String fallbackAmountKey = PAYMENTS_AMOUNT_TS_KEY + ":fallback";
-		String fallbackCountKey = PAYMENTS_COUNT_TS_KEY + ":fallback";
 
 		List<Object> results = Optional.ofNullable(
 				persistedRedisTemplate.execute(
 						GET_SUMMARY_SCRIPT,
-						List.of(defaultAmountKey, defaultCountKey, fallbackAmountKey, fallbackCountKey),
-						fromTimestamp,
-						toTimestamp
+						List.of(PAYMENTS_AMOUNT_TS_KEY + ":default", PAYMENTS_COUNT_TS_KEY + ":default", PAYMENTS_AMOUNT_TS_KEY + ":fallback", PAYMENTS_COUNT_TS_KEY + ":fallback"),
+						(from != null) ? String.valueOf(Instant.parse(from).toEpochMilli()) : "-",
+						(to != null) ? String.valueOf(Instant.parse(to).toEpochMilli()) : "+"
 				)
 		).orElse(Collections.emptyList());
 
