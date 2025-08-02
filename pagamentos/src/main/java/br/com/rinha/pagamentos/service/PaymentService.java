@@ -6,8 +6,7 @@ import br.com.rinha.pagamentos.model.PaymentSent;
 import br.com.rinha.pagamentos.model.Summary;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.connection.ReturnType;
-import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
@@ -15,10 +14,8 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
@@ -58,6 +55,7 @@ public class PaymentService {
 			);
 	private final RedisTemplate<String, QueuedPayment> queuedRedisTemplate;
 	private final RedisTemplate<String, String> persistedRedisTemplate;
+	private final ReactiveStringRedisTemplate reactivePersistedRedisTemplate;
 	private final WebClient webClient;
 
 	@Value("${processor.default.payments.url}")
@@ -68,9 +66,11 @@ public class PaymentService {
 	public PaymentService(
 			@Qualifier("queuedRedisTemplate") RedisTemplate<String, QueuedPayment> queuedRedisTemplate,
 			@Qualifier("persistedRedisTemplate") RedisTemplate<String, String> persistedRedisTemplate,
+			ReactiveStringRedisTemplate reactivePersistedRedisTemplate,
 			WebClient.Builder webClientBuilder) {
 		this.queuedRedisTemplate = queuedRedisTemplate;
 		this.persistedRedisTemplate = persistedRedisTemplate;
+		this.reactivePersistedRedisTemplate = reactivePersistedRedisTemplate;
 		this.webClient = webClientBuilder.build();
 	}
 
@@ -99,24 +99,25 @@ public class PaymentService {
 				.bodyValue(paymentSent)
 				.exchangeToMono(response -> {
 					if (response.statusCode().is2xxSuccessful()) {
-						return Mono.fromRunnable(() -> persistSuccessfulPayment(paymentSent, processorKey))
-								.subscribeOn(Schedulers.boundedElastic())
+						return persistSuccessfulPaymentReactive(paymentSent, processorKey)
 								.thenReturn(true);
 					}
 					return Mono.just(false);
 				});
 	}
 
-	private void persistSuccessfulPayment(PaymentSent paymentSent, String processorKey) {
-		persistedRedisTemplate.execute((RedisCallback<Object>) connection -> connection.scriptingCommands().eval(
-				PERSIST_PAYMENT_SCRIPT.getScriptAsString().getBytes(StandardCharsets.UTF_8),
-				ReturnType.INTEGER,
-				2,
-				(PAYMENTS_AMOUNT_TS_KEY + ":" + processorKey).getBytes(StandardCharsets.UTF_8),
-				(PAYMENTS_COUNT_TS_KEY + ":" + processorKey).getBytes(StandardCharsets.UTF_8),
-				String.valueOf(paymentSent.getAmount().multiply(ONE_HUNDRED).longValue()).getBytes(StandardCharsets.UTF_8),
-				String.valueOf(paymentSent.getRequestedAt().toEpochMilli()).getBytes(StandardCharsets.UTF_8)
-		));
+	private Mono<Long> persistSuccessfulPaymentReactive(PaymentSent paymentSent, String processorKey) {
+		String amountKey = PAYMENTS_AMOUNT_TS_KEY + ":" + processorKey;
+		String countKey = PAYMENTS_COUNT_TS_KEY + ":" + processorKey;
+
+		String amount = String.valueOf(paymentSent.getAmount().multiply(ONE_HUNDRED).longValue());
+		String timestamp = String.valueOf(paymentSent.getRequestedAt().toEpochMilli());
+
+		return reactivePersistedRedisTemplate.execute(
+				PERSIST_PAYMENT_SCRIPT,
+				List.of(amountKey, countKey),
+				List.of(amount, timestamp)
+		).next();
 	}
 
 	public PaymentsSummaryResponse getPaymentsSummary(String from, String to) {

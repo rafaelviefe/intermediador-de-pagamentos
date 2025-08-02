@@ -6,8 +6,10 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
+import org.springframework.data.redis.connection.ReactiveRedisConnectionFactory;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 import java.nio.charset.StandardCharsets;
@@ -54,6 +56,11 @@ public class RedisConfig {
 				return null;
 			});
 		};
+	}
+
+	@Bean
+	public ReactiveStringRedisTemplate reactivePersistedRedisTemplate(ReactiveRedisConnectionFactory factory) {
+		return new ReactiveStringRedisTemplate(factory);
 	}
 
 	private static final String CREATE_TS_IF_NOT_EXISTS_SCRIPT =
