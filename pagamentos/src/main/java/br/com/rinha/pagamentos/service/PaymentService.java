@@ -71,8 +71,8 @@ public class PaymentService {
 	}
 
 	@Async("virtualThreadExecutor")
-	public void queuePayment(QueuedPayment payment) {
-		queuedRedisTemplate.opsForList().leftPush(PROCESSING_QUEUE_KEY, payment);
+	public void handlePayment(QueuedPayment payment) {
+		processPayment(payment);
 	}
 
 	public void processPayment(QueuedPayment payment) {
@@ -81,11 +81,11 @@ public class PaymentService {
 				.filter(Boolean::booleanValue)
 				.switchIfEmpty(trySendAndPersist("fallback", processorFallbackUrl, paymentSent))
 				.filter(Boolean::booleanValue)
-				.switchIfEmpty(Mono.fromRunnable(() -> requeuePayment(payment)).then(Mono.just(false)))
+				.switchIfEmpty(Mono.fromRunnable(() -> queuePayment(payment)).then(Mono.just(false)))
 				.subscribe();
 	}
 
-	public void requeuePayment(QueuedPayment payment) {
+	public void queuePayment(QueuedPayment payment) {
 		queuedRedisTemplate.opsForList().leftPush(PROCESSING_QUEUE_KEY, payment);
 	}
 
