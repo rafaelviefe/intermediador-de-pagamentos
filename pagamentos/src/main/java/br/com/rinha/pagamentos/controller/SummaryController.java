@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import br.com.rinha.pagamentos.model.PaymentsSummaryResponse;
 import br.com.rinha.pagamentos.service.PaymentService;
+import reactor.core.publisher.Mono;
 
 @RestController
 @RequestMapping("/payments-summary")
@@ -19,10 +20,11 @@ public class SummaryController {
 	}
 
 	@GetMapping
-	public ResponseEntity<PaymentsSummaryResponse> getSummary(
+	public Mono<ResponseEntity<PaymentsSummaryResponse>> getSummary(
 			@RequestParam(required = false) String from,
 			@RequestParam(required = false) String to) {
-		return ResponseEntity.ok(paymentService.getPaymentsSummary(from, to));
-	}
 
+		return paymentService.getPaymentsSummary(from, to)
+				.map(ResponseEntity::ok);
+	}
 }

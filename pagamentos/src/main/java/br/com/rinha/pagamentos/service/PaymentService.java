@@ -20,7 +20,6 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 
 @Service
 public class PaymentService {
@@ -51,7 +50,6 @@ public class PaymentService {
 					List.class
 			);
 	private final RedisTemplate<String, QueuedPayment> queuedRedisTemplate;
-	private final RedisTemplate<String, String> persistedRedisTemplate;
 	private final ReactiveStringRedisTemplate reactivePersistedRedisTemplate;
 	private final WebClient webClient;
 	private final ProcessorHealthMonitor healthMonitor;
@@ -63,12 +61,10 @@ public class PaymentService {
 
 	public PaymentService(
 			@Qualifier("queuedRedisTemplate") RedisTemplate<String, QueuedPayment> queuedRedisTemplate,
-			@Qualifier("persistedRedisTemplate") RedisTemplate<String, String> persistedRedisTemplate,
 			@Qualifier("reactivePersistedRedisTemplate") ReactiveStringRedisTemplate reactivePersistedRedisTemplate,
 			WebClient.Builder webClientBuilder,
 			ProcessorHealthMonitor healthMonitor) {
 		this.queuedRedisTemplate = queuedRedisTemplate;
-		this.persistedRedisTemplate = persistedRedisTemplate;
 		this.reactivePersistedRedisTemplate = reactivePersistedRedisTemplate;
 		this.webClient = webClientBuilder.build();
 		this.healthMonitor = healthMonitor;
@@ -146,36 +142,41 @@ public class PaymentService {
 		).next();
 	}
 
-	public PaymentsSummaryResponse getPaymentsSummary(String from, String to) {
+	public Mono<PaymentsSummaryResponse> getPaymentsSummary(String from, String to) {
 
-		List<Object> results = Optional.ofNullable(
-				persistedRedisTemplate.execute(
-						GET_SUMMARY_SCRIPT,
-						List.of(PAYMENTS_AMOUNT_TS_KEY + ":default", PAYMENTS_COUNT_TS_KEY + ":default", PAYMENTS_AMOUNT_TS_KEY + ":fallback", PAYMENTS_COUNT_TS_KEY + ":fallback"),
-						(from != null) ? String.valueOf(Instant.parse(from).toEpochMilli()) : "-",
-						(to != null) ? String.valueOf(Instant.parse(to).toEpochMilli()) : "+"
-				)
-		).orElse(Collections.emptyList());
+		return reactivePersistedRedisTemplate.execute(
+				GET_SUMMARY_SCRIPT,
+				List.of(
+						PAYMENTS_AMOUNT_TS_KEY + ":default",
+						PAYMENTS_COUNT_TS_KEY + ":default",
+						PAYMENTS_AMOUNT_TS_KEY + ":fallback",
+						PAYMENTS_COUNT_TS_KEY + ":fallback"
+				),
+				List.of((from != null) ? String.valueOf(Instant.parse(from).toEpochMilli()) : "-", (to != null) ? String.valueOf(Instant.parse(to).toEpochMilli()) : "+")
+		).collectList().map(results -> {
+			List<Object> summaryList = results.isEmpty() ? Collections.emptyList() : (List<Object>) results.get(0);
 
-		long defaultCount = 0;
-		long defaultAmountCents = 0;
-		long fallbackCount = 0;
-		long fallbackAmountCents = 0;
-		if (results.size() == 4) {
-			defaultCount = Long.parseLong(String.valueOf(results.get(0)));
-			defaultAmountCents = Long.parseLong(String.valueOf(results.get(1)));
-			fallbackCount = Long.parseLong(String.valueOf(results.get(2)));
-			fallbackAmountCents = Long.parseLong(String.valueOf(results.get(3)));
-		}
+			long defaultCount = 0;
+			long defaultAmountCents = 0;
+			long fallbackCount = 0;
+			long fallbackAmountCents = 0;
 
-		Summary defaultSummary = new Summary(
-				defaultCount,
-				BigDecimal.valueOf(defaultAmountCents).divide(ONE_HUNDRED, 2, RoundingMode.UNNECESSARY)
-		);
-		Summary fallbackSummary = new Summary(
-				fallbackCount,
-				BigDecimal.valueOf(fallbackAmountCents).divide(ONE_HUNDRED, 2, RoundingMode.UNNECESSARY)
-		);
-		return new PaymentsSummaryResponse(defaultSummary, fallbackSummary);
+			if (summaryList.size() == 4) {
+				defaultCount = Long.parseLong(String.valueOf(summaryList.get(0)));
+				defaultAmountCents = Long.parseLong(String.valueOf(summaryList.get(1)));
+				fallbackCount = Long.parseLong(String.valueOf(summaryList.get(2)));
+				fallbackAmountCents = Long.parseLong(String.valueOf(summaryList.get(3)));
+			}
+
+			Summary defaultSummary = new Summary(
+					defaultCount,
+					BigDecimal.valueOf(defaultAmountCents).divide(ONE_HUNDRED, 2, RoundingMode.UNNECESSARY)
+			);
+			Summary fallbackSummary = new Summary(
+					fallbackCount,
+					BigDecimal.valueOf(fallbackAmountCents).divide(ONE_HUNDRED, 2, RoundingMode.UNNECESSARY)
+			);
+			return new PaymentsSummaryResponse(defaultSummary, fallbackSummary);
+		});
 	}
 }

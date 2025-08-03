@@ -46,7 +46,7 @@ public class ProcessorHealthMonitor implements MessageListener {
 		syncStateFromRedis().subscribe();
 	}
 
-	@Scheduled(fixedRate = 5000)
+	@Scheduled(fixedRate = 5150)
 	@SchedulerLock(name = "processorHealthCheckLock", lockAtMostFor = "4s", lockAtLeastFor = "4s")
 	public void scheduleHealthCheck() {
 		performHealthCheckAndNotify().subscribe();
