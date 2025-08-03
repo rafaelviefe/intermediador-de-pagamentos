@@ -86,7 +86,7 @@ public class PaymentService {
 					.switchIfEmpty(requeue(payment))
 					.subscribe();
 		} else {
-			queuePayment(payment);
+			queuePayment(payment).subscribe();
 		}
 	}
 
