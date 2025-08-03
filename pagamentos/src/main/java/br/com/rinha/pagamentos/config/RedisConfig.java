@@ -28,8 +28,6 @@ public class RedisConfig {
 		RedisTemplate<String, QueuedPayment> template = new RedisTemplate<>();
 		template.setConnectionFactory(connectionFactory);
 
-		// Assumindo que você tem uma classe KyroRedisSerializer no seu projeto
-		// Se não, substitua por um serializador adequado como Jackson2JsonRedisSerializer
 		var kryoSerializer = new KyroRedisSerializer();
 
 		template.setKeySerializer(new StringRedisSerializer());
@@ -55,7 +53,6 @@ public class RedisConfig {
 	public ApplicationRunner redisTimeSeriesInitializer(@Qualifier("persistedRedisTemplate") RedisTemplate<String, String> redisTemplate) {
 		return args -> {
 			redisTemplate.execute((RedisConnection connection) -> {
-				// Adicionando labels para permitir o filtro com TS.MRANGE
 				createTimeSeriesIfNotExists(connection, "payments:amount:ts:default", "type", "amount", "processor", "default");
 				createTimeSeriesIfNotExists(connection, "payments:count:ts:default", "type", "count", "processor", "default");
 				createTimeSeriesIfNotExists(connection, "payments:amount:ts:fallback", "type", "amount", "processor", "fallback");
@@ -81,7 +78,6 @@ public class RedisConfig {
 		return container;
 	}
 
-	// Script atualizado para aceitar e criar LABELS
 	private static final String CREATE_TS_IF_NOT_EXISTS_SCRIPT =
 			"if redis.call('EXISTS', KEYS[1]) == 0 then " +
 					"  return redis.call('TS.CREATE', KEYS[1], 'DUPLICATE_POLICY', 'SUM', 'LABELS', ARGV[1], ARGV[2], ARGV[3], ARGV[4]) " +
@@ -89,12 +85,11 @@ public class RedisConfig {
 					"  return 'OK' " +
 					"end";
 
-	// Método atualizado para passar os argumentos das labels
 	private void createTimeSeriesIfNotExists(RedisConnection connection, String key, String label1Name, String label1Value, String label2Name, String label2Value) {
 		connection.scriptingCommands().eval(
 				CREATE_TS_IF_NOT_EXISTS_SCRIPT.getBytes(StandardCharsets.UTF_8),
 				ReturnType.STATUS,
-				1, // numero de KEYS
+				1,
 				key.getBytes(StandardCharsets.UTF_8),
 				label1Name.getBytes(StandardCharsets.UTF_8),
 				label1Value.getBytes(StandardCharsets.UTF_8),
