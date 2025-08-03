@@ -11,9 +11,12 @@ import org.springframework.data.redis.connection.ReactiveRedisConnectionFactory;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.connection.ReturnType;
+import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
+import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.data.redis.serializer.RedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 import java.nio.charset.StandardCharsets;
@@ -23,19 +26,22 @@ public class RedisConfig {
 
 	@Bean
 	@Primary
-	@Qualifier("queuedRedisTemplate")
-	public RedisTemplate<String, QueuedPayment> queuedRedisTemplate(RedisConnectionFactory connectionFactory) {
-		RedisTemplate<String, QueuedPayment> template = new RedisTemplate<>();
-		template.setConnectionFactory(connectionFactory);
+	@Qualifier("reactiveQueuedRedisTemplate")
+	public ReactiveRedisTemplate<String, QueuedPayment> reactiveQueuedRedisTemplate(
+			ReactiveRedisConnectionFactory factory) {
 
 		var kryoSerializer = new KyroRedisSerializer();
+		var stringSerializer = new StringRedisSerializer();
 
-		template.setKeySerializer(new StringRedisSerializer());
-		template.setValueSerializer(kryoSerializer);
-		template.setHashKeySerializer(new StringRedisSerializer());
-		template.setHashValueSerializer(kryoSerializer);
-		template.afterPropertiesSet();
-		return template;
+		RedisSerializationContext<String, QueuedPayment> serializationContext = RedisSerializationContext
+				.<String, QueuedPayment>newSerializationContext(stringSerializer)
+				.key(stringSerializer)
+				.value((RedisSerializer<QueuedPayment>) (RedisSerializer<?>) kryoSerializer)
+				.hashKey(stringSerializer)
+				.hashValue((RedisSerializer<QueuedPayment>) (RedisSerializer<?>) kryoSerializer)
+				.build();
+
+		return new ReactiveRedisTemplate<>(factory, serializationContext);
 	}
 
 	@Bean

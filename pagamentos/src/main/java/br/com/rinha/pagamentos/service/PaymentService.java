@@ -7,8 +7,8 @@ import br.com.rinha.pagamentos.model.PaymentSent;
 import br.com.rinha.pagamentos.model.Summary;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.scheduling.annotation.Async;
@@ -37,7 +37,7 @@ public class PaymentService {
 	private static final RedisScript<List> GENERIC_COMMAND_SCRIPT =
 			new DefaultRedisScript<>("return redis.call(unpack(ARGV))", List.class);
 
-	private final RedisTemplate<String, QueuedPayment> queuedRedisTemplate;
+	private final ReactiveRedisTemplate<String, QueuedPayment> reactiveQueuedRedisTemplate;
 	private final ReactiveStringRedisTemplate reactivePersistedRedisTemplate;
 	private final WebClient webClient;
 	private final ProcessorHealthMonitor healthMonitor;
@@ -48,11 +48,11 @@ public class PaymentService {
 	private String processorFallbackUrl;
 
 	public PaymentService(
-			@Qualifier("queuedRedisTemplate") RedisTemplate<String, QueuedPayment> queuedRedisTemplate,
+			@Qualifier("reactiveQueuedRedisTemplate") ReactiveRedisTemplate<String, QueuedPayment> reactiveQueuedRedisTemplate,
 			@Qualifier("reactivePersistedRedisTemplate") ReactiveStringRedisTemplate reactivePersistedRedisTemplate,
 			WebClient.Builder webClientBuilder,
 			ProcessorHealthMonitor healthMonitor) {
-		this.queuedRedisTemplate = queuedRedisTemplate;
+		this.reactiveQueuedRedisTemplate = reactiveQueuedRedisTemplate;
 		this.reactivePersistedRedisTemplate = reactivePersistedRedisTemplate;
 		this.webClient = webClientBuilder.build();
 		this.healthMonitor = healthMonitor;
@@ -90,13 +90,12 @@ public class PaymentService {
 		}
 	}
 
-	public void queuePayment(QueuedPayment payment) {
-		queuedRedisTemplate.opsForList().leftPush(PROCESSING_QUEUE_KEY, payment);
+	public Mono<Long> queuePayment(QueuedPayment payment) {
+		return reactiveQueuedRedisTemplate.opsForList().leftPush(PROCESSING_QUEUE_KEY, payment);
 	}
 
 	private Mono<Boolean> requeue(QueuedPayment payment) {
-		return Mono.fromRunnable(() -> queuePayment(payment))
-				.then(Mono.just(false));
+		return this.queuePayment(payment).thenReturn(false);
 	}
 
 	private Mono<Boolean> trySendAndPersist(String processorKey, String url, PaymentSent paymentSent) {
