@@ -1,5 +1,6 @@
 package br.com.rinha.pagamentos.service;
 
+import br.com.rinha.pagamentos.health.ProcessorHealthMonitor;
 import br.com.rinha.pagamentos.model.PaymentsSummaryResponse;
 import br.com.rinha.pagamentos.model.QueuedPayment;
 import br.com.rinha.pagamentos.model.PaymentSent;
@@ -53,6 +54,7 @@ public class PaymentService {
 	private final RedisTemplate<String, String> persistedRedisTemplate;
 	private final ReactiveStringRedisTemplate reactivePersistedRedisTemplate;
 	private final WebClient webClient;
+	private final ProcessorHealthMonitor healthMonitor;
 
 	@Value("${processor.default.payments.url}")
 	private String processorDefaultUrl;
@@ -63,11 +65,13 @@ public class PaymentService {
 			@Qualifier("queuedRedisTemplate") RedisTemplate<String, QueuedPayment> queuedRedisTemplate,
 			@Qualifier("persistedRedisTemplate") RedisTemplate<String, String> persistedRedisTemplate,
 			@Qualifier("reactivePersistedRedisTemplate") ReactiveStringRedisTemplate reactivePersistedRedisTemplate,
-			WebClient.Builder webClientBuilder) {
+			WebClient.Builder webClientBuilder,
+			ProcessorHealthMonitor healthMonitor) {
 		this.queuedRedisTemplate = queuedRedisTemplate;
 		this.persistedRedisTemplate = persistedRedisTemplate;
 		this.reactivePersistedRedisTemplate = reactivePersistedRedisTemplate;
 		this.webClient = webClientBuilder.build();
+		this.healthMonitor = healthMonitor;
 	}
 
 	@Async("virtualThreadExecutor")
@@ -76,17 +80,39 @@ public class PaymentService {
 	}
 
 	public void processPayment(QueuedPayment payment) {
-		PaymentSent paymentSent = new PaymentSent(payment);
-		trySendAndPersist("default", processorDefaultUrl, paymentSent)
-				.filter(Boolean::booleanValue)
-				.switchIfEmpty(trySendAndPersist("fallback", processorFallbackUrl, paymentSent))
-				.filter(Boolean::booleanValue)
-				.switchIfEmpty(Mono.fromRunnable(() -> queuePayment(payment)).then(Mono.just(false)))
-				.subscribe();
+		final boolean isDefaultUp = healthMonitor.isDefaultProcessorAvailable();
+		final boolean isFallbackUp = healthMonitor.isFallbackProcessorAvailable();
+		final PaymentSent paymentSent = new PaymentSent(payment);
+
+		if (isDefaultUp && isFallbackUp) {
+			trySendAndPersist("default", processorDefaultUrl, paymentSent)
+					.filter(Boolean::booleanValue)
+					.switchIfEmpty(trySendAndPersist("fallback", processorFallbackUrl, paymentSent))
+					.filter(Boolean::booleanValue)
+					.switchIfEmpty(requeue(payment))
+					.subscribe();
+		} else if (isDefaultUp) {
+			trySendAndPersist("default", processorDefaultUrl, paymentSent)
+					.filter(Boolean::booleanValue)
+					.switchIfEmpty(requeue(payment))
+					.subscribe();
+		} else if (isFallbackUp) {
+			trySendAndPersist("fallback", processorFallbackUrl, paymentSent)
+					.filter(Boolean::booleanValue)
+					.switchIfEmpty(requeue(payment))
+					.subscribe();
+		} else {
+			queuePayment(payment);
+		}
 	}
 
 	public void queuePayment(QueuedPayment payment) {
 		queuedRedisTemplate.opsForList().leftPush(PROCESSING_QUEUE_KEY, payment);
+	}
+
+	private Mono<Boolean> requeue(QueuedPayment payment) {
+		return Mono.fromRunnable(() -> queuePayment(payment))
+				.then(Mono.just(false));
 	}
 
 	private Mono<Boolean> trySendAndPersist(String processorKey, String url, PaymentSent paymentSent) {
@@ -98,8 +124,12 @@ public class PaymentService {
 						return persistSuccessfulPaymentReactive(paymentSent, processorKey)
 								.thenReturn(true);
 					}
+					if (response.statusCode().isError()) {
+						return Mono.empty();
+					}
 					return Mono.just(false);
-				});
+				})
+				.onErrorResume(e -> Mono.empty());
 	}
 
 	private Mono<Long> persistSuccessfulPaymentReactive(PaymentSent paymentSent, String processorKey) {
