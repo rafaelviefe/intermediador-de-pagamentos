@@ -18,7 +18,7 @@ import java.time.Duration;
 public class RetryQueueConsumer implements ApplicationListener<ApplicationReadyEvent> {
 
 	private static final String PROCESSING_QUEUE_KEY = "payments:processing-queue";
-	private static final int BATCH_SIZE = 200;
+	private static final int BATCH_SIZE = 70;
 	private static final Duration EMPTY_QUEUE_DELAY = Duration.ofMillis(200);
 
 	private final ReactiveRedisTemplate<String, QueuedPayment> reactiveRedisTemplate;
