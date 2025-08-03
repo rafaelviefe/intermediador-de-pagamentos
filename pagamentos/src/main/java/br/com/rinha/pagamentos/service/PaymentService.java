@@ -15,37 +15,28 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
+
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
 public class PaymentService {
+
 	private static final String PAYMENTS_AMOUNT_TS_KEY = "payments:amount:ts";
 	private static final String PAYMENTS_COUNT_TS_KEY = "payments:count:ts";
 	private static final String PROCESSING_QUEUE_KEY = "payments:processing-queue";
+
 	private static final RedisScript<Long> PERSIST_PAYMENT_SCRIPT =
 			new DefaultRedisScript<>(
 					"redis.call('TS.MADD', KEYS[1], ARGV[1], ARGV[2], KEYS[2], ARGV[1], 1); return 1",
 					Long.class
 			);
-	private static final RedisScript<List> GET_SUMMARY_SCRIPT =
-			new DefaultRedisScript<>(
-					"""
-					local timeBucket = 9999999999999
-					local summary = {0, 0, 0, 0}
-					local default_amount_res = redis.call('TS.RANGE', KEYS[1], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
-					if #default_amount_res > 0 then summary[2] = default_amount_res[1][2] end
-					local default_count_res = redis.call('TS.RANGE', KEYS[2], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
-					if #default_count_res > 0 then summary[1] = default_count_res[1][2] end
-					local fallback_amount_res = redis.call('TS.RANGE', KEYS[3], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
-					if #fallback_amount_res > 0 then summary[4] = fallback_amount_res[1][2] end
-					local fallback_count_res = redis.call('TS.RANGE', KEYS[4], ARGV[1], ARGV[2], 'AGGREGATION', 'sum', timeBucket)
-					if #fallback_count_res > 0 then summary[3] = fallback_count_res[1][2] end
-					return summary
-					""",
-					List.class
-			);
+
+	private static final RedisScript<List> GENERIC_COMMAND_SCRIPT =
+			new DefaultRedisScript<>("return redis.call(unpack(ARGV))", List.class);
+
 	private final RedisTemplate<String, QueuedPayment> queuedRedisTemplate;
 	private final ReactiveStringRedisTemplate reactivePersistedRedisTemplate;
 	private final WebClient webClient;
@@ -126,7 +117,6 @@ public class PaymentService {
 	}
 
 	private Mono<Long> persistSuccessfulPaymentReactive(PaymentSent paymentSent, String processorKey) {
-
 		return reactivePersistedRedisTemplate.execute(
 				PERSIST_PAYMENT_SCRIPT,
 				List.of(PAYMENTS_AMOUNT_TS_KEY + ":" + processorKey, PAYMENTS_COUNT_TS_KEY + ":" + processorKey),
@@ -139,33 +129,80 @@ public class PaymentService {
 
 	public Mono<PaymentsSummaryResponse> getPaymentsSummary(String from, String to) {
 
+		List<String> commandAndArgs = getRedisData(from, to);
+
 		return reactivePersistedRedisTemplate.execute(
-				GET_SUMMARY_SCRIPT,
-				List.of(
-						PAYMENTS_AMOUNT_TS_KEY + ":default",
-						PAYMENTS_COUNT_TS_KEY + ":default",
-						PAYMENTS_AMOUNT_TS_KEY + ":fallback",
-						PAYMENTS_COUNT_TS_KEY + ":fallback"
-				),
-				List.of((from != null) ? String.valueOf(Instant.parse(from).toEpochMilli()) : "-", (to != null) ? String.valueOf(Instant.parse(to).toEpochMilli()) : "+")
+				GENERIC_COMMAND_SCRIPT,
+				List.of(),
+				commandAndArgs
 		).collectList().map(results -> {
-
-			List<?> summaryList = (List<?>) results.getFirst();
-
-			long defaultCount = Long.parseLong(String.valueOf(summaryList.get(0)));
-			long defaultAmountCents = Long.parseLong(String.valueOf(summaryList.get(1)));
-			long fallbackCount = Long.parseLong(String.valueOf(summaryList.get(2)));
-			long fallbackAmountCents = Long.parseLong(String.valueOf(summaryList.get(3)));
-
-			Summary defaultSummary = new Summary(
-					defaultCount,
-					BigDecimal.valueOf(defaultAmountCents).scaleByPowerOfTen(-2)
-			);
-			Summary fallbackSummary = new Summary(
-					fallbackCount,
-					BigDecimal.valueOf(fallbackAmountCents).scaleByPowerOfTen(-2)
-			);
-			return new PaymentsSummaryResponse(defaultSummary, fallbackSummary);
+			List<?> rawResultList = (List<?>) results.get(0);
+			return parseMRangeResponse(rawResultList);
 		});
+	}
+
+	private static List<String> getRedisData(String from, String to) {
+		List<String> commandAndArgs = new ArrayList<>(9);
+		commandAndArgs.add("TS.MRANGE");
+		commandAndArgs.add((from != null) ? String.valueOf(Instant.parse(from).toEpochMilli()) : "-");
+		commandAndArgs.add((to != null) ? String.valueOf(Instant.parse(to).toEpochMilli()) : "+");
+		commandAndArgs.add("WITHLABELS");
+		commandAndArgs.add("AGGREGATION");
+		commandAndArgs.add("sum");
+		commandAndArgs.add("9999999999999");
+		commandAndArgs.add("FILTER");
+		commandAndArgs.add("processor=(default,fallback)");
+		return commandAndArgs;
+	}
+
+	private PaymentsSummaryResponse parseMRangeResponse(List<?> rawResult) {
+
+		long defaultCount = 0;
+		long defaultAmountCents = 0;
+		long fallbackCount = 0;
+		long fallbackAmountCents = 0;
+
+		for (Object seriesDataObject : rawResult) {
+			List<?> seriesData = (List<?>) seriesDataObject;
+			List<?> labelsList = (List<?>) seriesData.get(1);
+
+			String processor = "";
+			String type = "";
+
+			for (Object labelPairObject : labelsList) {
+				List<?> labelPair = (List<?>) labelPairObject;
+				String labelName = (String) labelPair.get(0);
+				String labelValue = (String) labelPair.get(1);
+				if ("processor".equals(labelName)) {
+					processor = labelValue;
+				} else if ("type".equals(labelName)) {
+					type = labelValue;
+				}
+			}
+
+			List<?> dataPointsList = (List<?>) seriesData.get(2);
+
+			switch (processor) {
+			case "default":
+				if (!dataPointsList.isEmpty()) {
+					long value = Long.parseLong((String) ((List<?>) dataPointsList.get(0)).get(1));
+					if ("count".equals(type)) defaultCount = value;
+					else defaultAmountCents = value;
+				}
+				break;
+			case "fallback":
+				if (!dataPointsList.isEmpty()) {
+					long value = Long.parseLong((String) ((List<?>) dataPointsList.get(0)).get(1));
+					if ("count".equals(type)) fallbackCount = value;
+					else fallbackAmountCents = value;
+				}
+				break;
+			}
+		}
+
+		Summary defaultSummary = new Summary(defaultCount, BigDecimal.valueOf(defaultAmountCents, 2));
+		Summary fallbackSummary = new Summary(fallbackCount, BigDecimal.valueOf(fallbackAmountCents, 2));
+
+		return new PaymentsSummaryResponse(defaultSummary, fallbackSummary);
 	}
 }

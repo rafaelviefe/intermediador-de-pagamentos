@@ -1,9 +1,12 @@
 package br.com.rinha.pagamentos.model;
 
+import java.math.BigDecimal;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 public class PaymentsSummaryResponse {
+
+	public static final PaymentsSummaryResponse EMPTY = new PaymentsSummaryResponse(new Summary(0, BigDecimal.ZERO), new Summary(0, BigDecimal.ZERO));
 
 	@JsonProperty("default")
 	private Summary defaultSummary;
