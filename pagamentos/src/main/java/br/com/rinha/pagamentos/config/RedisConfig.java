@@ -1,5 +1,6 @@
 package br.com.rinha.pagamentos.config;
 
+import br.com.rinha.pagamentos.health.ProcessorHealthMonitor;
 import br.com.rinha.pagamentos.model.QueuedPayment;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.ApplicationRunner;
@@ -11,6 +12,7 @@ import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 import java.nio.charset.StandardCharsets;
 
@@ -61,6 +63,17 @@ public class RedisConfig {
 	@Bean
 	public ReactiveStringRedisTemplate reactivePersistedRedisTemplate(ReactiveRedisConnectionFactory factory) {
 		return new ReactiveStringRedisTemplate(factory);
+	}
+
+	@Bean
+	public RedisMessageListenerContainer redisMessageListenerContainer(
+			RedisConnectionFactory connectionFactory,
+			ProcessorHealthMonitor healthMonitor) {
+
+		RedisMessageListenerContainer container = new RedisMessageListenerContainer();
+		container.setConnectionFactory(connectionFactory);
+		container.addMessageListener(healthMonitor, healthMonitor.getTopic());
+		return container;
 	}
 
 	private static final String CREATE_TS_IF_NOT_EXISTS_SCRIPT =

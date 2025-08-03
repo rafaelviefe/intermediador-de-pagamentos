@@ -62,7 +62,7 @@ public class PaymentService {
 	public PaymentService(
 			@Qualifier("queuedRedisTemplate") RedisTemplate<String, QueuedPayment> queuedRedisTemplate,
 			@Qualifier("persistedRedisTemplate") RedisTemplate<String, String> persistedRedisTemplate,
-			ReactiveStringRedisTemplate reactivePersistedRedisTemplate,
+			@Qualifier("reactivePersistedRedisTemplate") ReactiveStringRedisTemplate reactivePersistedRedisTemplate,
 			WebClient.Builder webClientBuilder) {
 		this.queuedRedisTemplate = queuedRedisTemplate;
 		this.persistedRedisTemplate = persistedRedisTemplate;
