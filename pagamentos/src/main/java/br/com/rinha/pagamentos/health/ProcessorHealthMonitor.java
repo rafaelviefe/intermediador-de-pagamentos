@@ -8,6 +8,7 @@ import org.springframework.data.redis.connection.Message;
 import org.springframework.data.redis.connection.MessageListener;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.data.redis.listener.ChannelTopic;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -46,6 +47,7 @@ public class ProcessorHealthMonitor implements MessageListener {
 		syncStateFromRedis().subscribe();
 	}
 
+	@Async("virtualThreadExecutor")
 	@Scheduled(fixedRate = 5150)
 	@SchedulerLock(name = "processorHealthCheckLock", lockAtMostFor = "4s", lockAtLeastFor = "4s")
 	public void scheduleHealthCheck() {
