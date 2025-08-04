@@ -11,7 +11,6 @@ import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
@@ -58,7 +57,6 @@ public class PaymentService {
 		this.healthMonitor = healthMonitor;
 	}
 
-	@Async("virtualThreadExecutor")
 	public void handlePayment(QueuedPayment payment) {
 		processPayment(payment);
 	}
