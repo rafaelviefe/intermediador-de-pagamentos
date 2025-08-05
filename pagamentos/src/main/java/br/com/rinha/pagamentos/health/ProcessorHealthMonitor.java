@@ -120,6 +120,6 @@ public class ProcessorHealthMonitor implements MessageListener {
 	}
 
 	public boolean isFallbackProcessorAvailable() {
-		return isFallbackAvailable && ThreadLocalRandom.current().nextDouble() < 0.15;
+		return isFallbackAvailable;
 	}
 }
