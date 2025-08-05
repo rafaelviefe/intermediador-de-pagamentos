@@ -9,7 +9,7 @@ x-api-dev-template: &api-dev
   deploy:
     resources:
       limits:
-        cpus: "0.80"
+        cpus: "0.75"
         memory: "450MB"
 
 services:
