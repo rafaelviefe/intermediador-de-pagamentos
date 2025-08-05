@@ -19,8 +19,6 @@ import java.time.Duration;
 public class RetryQueueConsumer implements ApplicationListener<ApplicationReadyEvent> {
 
 	private static final String PROCESSING_QUEUE_KEY = "payments:processing-queue";
-	private static final int BATCH_SIZE = 70;
-	private static final Duration EMPTY_QUEUE_DELAY = Duration.ofMillis(200);
 	private static final Duration PROCESSORS_UNAVAILABLE_DELAY = Duration.ofMillis(100);
 
 	private final ReactiveRedisTemplate<String, QueuedPayment> reactiveRedisTemplate;
@@ -52,8 +50,7 @@ public class RetryQueueConsumer implements ApplicationListener<ApplicationReadyE
 
 					if (canProcess) {
 						return reactiveRedisTemplate.opsForList()
-								.rightPop(PROCESSING_QUEUE_KEY, BATCH_SIZE)
-								.switchIfEmpty(Flux.defer(() -> Flux.<QueuedPayment>empty().delaySubscription(EMPTY_QUEUE_DELAY)));
+								.rightPop(PROCESSING_QUEUE_KEY, Duration.ofSeconds(1));
 					} else {
 						return Flux.<QueuedPayment>empty().delaySubscription(PROCESSORS_UNAVAILABLE_DELAY);
 					}
