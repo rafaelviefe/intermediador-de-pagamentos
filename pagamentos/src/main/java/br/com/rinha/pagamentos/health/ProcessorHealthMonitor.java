@@ -16,6 +16,7 @@ import reactor.core.publisher.Mono;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Component
 public class ProcessorHealthMonitor implements MessageListener {
@@ -119,6 +120,6 @@ public class ProcessorHealthMonitor implements MessageListener {
 	}
 
 	public boolean isFallbackProcessorAvailable() {
-		return isFallbackAvailable;
+		return isFallbackAvailable && ThreadLocalRandom.current().nextDouble() < 0.15;
 	}
 }
