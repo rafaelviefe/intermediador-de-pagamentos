@@ -1,18 +1,13 @@
-FROM ghcr.io/graalvm/graalvm-community:21-ol8 AS builder
+FROM debian:12-slim as builder
 
-WORKDIR /app
-COPY . .
-
-RUN ./mvnw -Pnative -Dmaven.test.skip=true native:compile
-
-FROM debian:bullseye-slim
-
-RUN apt-get update && apt-get install -y libz-dev && rm -rf /var/lib/lists/*
+FROM gcr.io/distroless/base-debian12
 
 WORKDIR /app
 
-COPY --from=builder /app/target/pagamentos .
+COPY --from=builder /lib/x86_64-linux-gnu/libz.so.1 /lib/x86_64-linux-gnu/libz.so.1
+
+COPY target/pagamentos /app/pagamentos
 
 EXPOSE 8080
 
-ENTRYPOINT ["./pagamentos"]
+CMD ["/app/pagamentos"]
