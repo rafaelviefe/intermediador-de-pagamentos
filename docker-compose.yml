@@ -16,7 +16,7 @@ services:
       resources:
         limits:
           cpus: "0.12"
-          memory: "50MB"
+          memory: "43MB"
   
   api1: &api
     build:
@@ -33,13 +33,13 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.57"
-          memory: "115MB"
+          cpus: "0.59"
+          memory: "125MB"
   
   api2:
     <<: *api
     hostname: api2
-
+  
   load-balancer:
     build:
       context: ./load-balancer
@@ -54,8 +54,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.24"
-          memory: "70MB"
+          cpus: "0.20"
+          memory: "57MB"
 
 networks:
   backend:
