@@ -55,12 +55,9 @@ func getNextBackendIndex() int {
     return int(nextIndex % uint64(len(backendServers)))
 }
 
-// ✅ VERSÃO "FIRE-AND-FORGET" OTIMIZADA ✅
 func worker() {
     for job := range jobQueue {
-        // A chamada de rede agora é feita em uma nova goroutine para não bloquear o worker.
         go func(job Job) {
-            // O buffer agora deve ser devolvido ao pool DENTRO desta goroutine.
             defer bufferPool.Put(job.Body)
 
             targetHost := backendServers[getNextBackendIndex()]
@@ -75,8 +72,6 @@ func worker() {
                 return
             }
 
-            // IMPORTANTE: Ainda precisamos fechar o corpo da resposta para que o http.Transport
-            // possa reutilizar a conexão (Keep-Alive). Se não fizermos isso, vazaremos conexões.
             io.Copy(io.Discard, resp.Body)
             resp.Body.Close()
         }(job)
