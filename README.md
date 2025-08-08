@@ -1,55 +1,52 @@
-# Rinha de Backend 2025 - Submissão
+# Backend Rinha 2025 - Submission
 
-## Sobre o Projeto
+## About the Project
 
-Sou Rafael Vieira Ferreira, estudante de Sistemas de Informação e estagiário, e participei da Rinha de Backend 2025 com o objetivo principal de aprender e experimentar novas tecnologias.
+I am Rafael Vieira Ferreira, an Information Systems student and intern, and I participated in the Backend Rinha 2025 with the main goal of learning and experimenting with new technologies.
 
-A ideia central foi construir um intermediador de pagamentos com um **load balancer próprio** escrito em Go, pensado para ser extremamente leve e focado no que precisava: garantir o maior *fire-and-forget* possível para reduzir o tempo médio de resposta.
+The central idea was to build a payment intermediary with a **custom load balancer** written in Go. The load balancer distributes requests between two backend instances. In the best-case scenario, the payment is persisted directly; in the worst case, it goes into a **retry queue** to be processed as soon as a processor becomes available. A **health checker** monitors both processors to avoid sending requests to unavailable instances.
 
-O load balancer distribui requisições entre duas instâncias do backend. No melhor cenário, o pagamento é persistido diretamente; no pior, ele vai para uma **fila de retentativas** para ser processado assim que algum processador estiver disponível. Um **health checker** monitora os dois processadores para evitar o envio de requisições para instâncias indisponíveis.
-
-No backend, usei **programação reativa** e **virtual threads do Java 21** para otimizar consumo de recursos, além de **GraalVM** para gerar binários nativos. O **Redis** foi usado como armazenamento e também como mecanismo de mensageria, junto com **Kryo** para serialização e **ShedLock** para controlar tarefas agendadas.
+In the backend, I used **reactive programming** and **Java 21 virtual threads** to optimize resource usage, along with **GraalVM** to generate native binaries. **Redis** was used both as storage and as a messaging mechanism, combined with **Kryo** for serialization and **ShedLock** to control scheduled tasks.
 
 ---
 
-## Tecnologias Utilizadas
+## Technologies Used
 
-* **Linguagem:** Java 21 + Go
+* **Language:** Java 21 + Go
 * **Framework:** Spring Boot + WebFlux
-* **Load Balancer:** Go (desenvolvido por mim)
-* **Armazenamento:** Redis
-* **Mensageria:** Redis
-* **Serialização:** Kryo
-* **Agendamento:** ShedLock
-* **Build Nativo:** GraalVM
+* **Load Balancer:** Go (custom built)
+* **Storage:** Redis
+* **Messaging:** Redis
+* **Serialization:** Kryo
+* **Scheduling:** ShedLock
+* **Native Build:** GraalVM
 
 ---
 
-## Repositório do Código
+## Code Repository
 
-[https://github.com/rafaelviefe/intermediador-de-pagamentos](https://github.com/rafaelviefe/intermediador-de-pagamentos)
+[https://github.com/rafaelviefe/payment-intermediary](https://github.com/rafaelviefe/payment-intermediary)
 
 ---
 
-## Execução
+## Running the Project
 
-O `docker-compose.yml` está configurado para subir:
+The `docker-compose.yml` is configured to spin up:
 
 * **Redis**
-* **API 1**
-* **API 2**
+* **API** (default processor)
 * **Load Balancer**
 
-Basta executar:
+Just run:
 
 ```bash
 docker compose up --build
 ```
 
-O serviço ficará disponível na porta **9999**.
+The service will be available on port **9999**.
 
 ---
 
-## Observações
+## Notes
 
-O foco desse projeto não foi apenas performance, mas também aprendizado: desde escrever um load balancer do zero, até usar virtual threads e binários nativos com GraalVM. Foi um ótimo exercício de integração de tecnologias e otimização de recursos.
+The focus of this project was not only performance but also learning: from writing a load balancer from scratch to using virtual threads and native binaries with GraalVM. It was a great exercise in technology integration and resource optimization.
