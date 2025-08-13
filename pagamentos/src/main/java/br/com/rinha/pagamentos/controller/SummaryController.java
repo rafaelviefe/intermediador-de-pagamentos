@@ -1,5 +1,6 @@
 package br.com.rinha.pagamentos.controller;
 
+import java.time.Duration;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -25,6 +26,7 @@ public class SummaryController {
 			@RequestParam(required = false) String to) {
 
 		return paymentService.getPaymentsSummary(from, to)
+				.delaySubscription(Duration.ofMillis(1111))
 				.map(ResponseEntity::ok);
 	}
 }
